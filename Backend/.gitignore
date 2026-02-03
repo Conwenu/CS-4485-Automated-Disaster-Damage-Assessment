@@ -1,0 +1,29 @@
+# Python Bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+.env/
+
+# Database files (SQLite example)
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# Test coverage
+.coverage
+nosetests.xml
+coverage.xml
+*.cover
+
+# IDE/Editor files
+.vscode/
+.idea/
+
+# Temporary files
+*.bak
+*.swp
