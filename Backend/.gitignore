@@ -28,3 +28,7 @@ coverage.xml
 # Temporary files
 *.bak
 *.swp
+
+temp_images/
+uvicorn
+__pycache__/
