@@ -4,7 +4,7 @@ import uuid
 
 from fastapi import APIRouter, File, UploadFile
 
-from app.vlm.service import assess_damage
+from app.vlm.service import assess_damage, assess_damage_images_only
 
 router = APIRouter(prefix="/vlm", tags=["VLM"])
 TEMP_DIR = "temp_images"
@@ -39,5 +39,28 @@ async def assess(
         return assess_damage(pre_path, post_path, label_path)
     finally:
         for path in (pre_path, post_path, label_path):
+            if os.path.exists(path):
+                os.remove(path)
+
+
+@router.post("/assess-demo")
+async def assess_demo(
+    pre_image: UploadFile = File(...),
+    post_image: UploadFile = File(...),
+):
+    run_id = uuid.uuid4().hex
+
+    pre_path = os.path.join(TEMP_DIR, f"{run_id}_{pre_image.filename}")
+    post_path = os.path.join(TEMP_DIR, f"{run_id}_{post_image.filename}")
+
+    try:
+        with open(pre_path, "wb") as f:
+            shutil.copyfileobj(pre_image.file, f)
+        with open(post_path, "wb") as f:
+            shutil.copyfileobj(post_image.file, f)
+
+        return assess_damage_images_only(pre_path, post_path)
+    finally:
+        for path in (pre_path, post_path):
             if os.path.exists(path):
                 os.remove(path)

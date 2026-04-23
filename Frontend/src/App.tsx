@@ -62,6 +62,28 @@ type BoundingBox = {
   bbox: [number, number, number, number]; 
 }
 
+type VlmDemoResult = {
+  model: {
+    damage_level?: string;
+    confidence?: number | null;
+    reasoning?: string;
+  };
+  inputs?: {
+    pre_image?: string;
+    post_image?: string;
+  };
+};
+
+const EVALUATION_LABELS = [
+  "no-damage",
+  "minor-damage",
+  "major-damage",
+  "destroyed",
+  "un-classified",
+] as const;
+
+type EvaluationLabel = (typeof EVALUATION_LABELS)[number];
+
 function App() {
   const [damageFilter, setDamageFilter] = useState<{
     noDamage: boolean;
@@ -88,6 +110,11 @@ function App() {
       text: "Ask me about damage patterns, affected areas, or overall impact.",
     },
   ]);
+  const [demoPreImage, setDemoPreImage] = useState<File | null>(null);
+  const [demoPostImage, setDemoPostImage] = useState<File | null>(null);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoError, setDemoError] = useState("");
+  const [demoResult, setDemoResult] = useState<VlmDemoResult | null>(null);
 
   const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
   useEffect(() => {
@@ -152,6 +179,43 @@ function App() {
     setChatInput("");
   };
 
+  const handleVlmDemoSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!demoPreImage || !demoPostImage) {
+      setDemoError("Please upload both a pre-disaster image and a post-disaster image.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("pre_image", demoPreImage);
+    formData.append("post_image", demoPostImage);
+
+    setDemoLoading(true);
+    setDemoError("");
+    setDemoResult(null);
+
+    try {
+      const response = await fetch("http://localhost:8000/vlm/assess-demo", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const data = (await response.json()) as VlmDemoResult;
+      setDemoResult(data);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "The VLM evaluation request failed.";
+      setDemoError(message);
+    } finally {
+      setDemoLoading(false);
+    }
+  };
+
   const renderHouse = (property: PropertyPoint) => {
     const isVisible = filteredProperties.some((p) => p.id === property.id);
     if (!isVisible) {
@@ -184,6 +248,35 @@ function App() {
   const row1 = PROPERTIES.filter((p) => p.row === 1).sort(
     (a, b) => a.col - b.col,
   );
+  const groundTruthCounts = summaryData.ground_truth_counts as Partial<
+    Record<EvaluationLabel, number>
+  >;
+  const predictionCounts = summaryData.prediction_counts as Partial<
+    Record<EvaluationLabel, number>
+  >;
+  const confusionCounts = summaryData.confusion_counts as Record<string, number>;
+  const evaluationMatrix = useMemo(
+    () =>
+      EVALUATION_LABELS.map((groundTruth) => ({
+        groundTruth,
+        predictions: EVALUATION_LABELS.map(
+          (prediction) => confusionCounts[`${groundTruth} -> ${prediction}`] ?? 0,
+        ),
+      })),
+    [confusionCounts],
+  );
+  const topConfusions = useMemo(
+    () =>
+      Object.entries(confusionCounts)
+        .filter(([key, count]) => {
+          const [groundTruth, prediction] = key.split(" -> ");
+          return groundTruth !== prediction && count > 0;
+        })
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 4),
+    [confusionCounts],
+  );
+  const evaluatedPct = ((summaryData.matched / summaryData.total) * 100).toFixed(2);
 
   return (
     <div className="app">
@@ -453,6 +546,159 @@ function App() {
                   Severe Damage
                 </span>
               </div>
+            </div>
+          </section>
+          <section className="panel vlm-demo-panel">
+            <div className="panel-header">
+              <h2>VLM Evaluation</h2>
+            </div>
+            <p className="vlm-demo-copy">
+              Upload a pre-disaster and post-disaster image pair to evaluate damage level.
+            </p>
+            <form className="vlm-demo-form" onSubmit={handleVlmDemoSubmit}>
+              <label className="vlm-demo-field">
+                <span>Pre-disaster image</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={(event) =>
+                    setDemoPreImage(event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+              <label className="vlm-demo-field">
+                <span>Post-disaster image</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={(event) =>
+                    setDemoPostImage(event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+              <button
+                className="vlm-demo-submit"
+                type="submit"
+                disabled={demoLoading}
+              >
+                {demoLoading ? "Evaluating..." : "Run VLM Evaluation"}
+              </button>
+            </form>
+            {demoError ? <p className="vlm-demo-error">{demoError}</p> : null}
+            {demoResult ? (
+              <div className="vlm-demo-result">
+                <div className="vlm-demo-result-row">
+                  <span className="vlm-demo-label">Damage level</span>
+                  <span className="vlm-demo-value">
+                    {demoResult.model.damage_level ?? "Unavailable"}
+                  </span>
+                </div>
+                <div className="vlm-demo-result-row">
+                  <span className="vlm-demo-label">Confidence</span>
+                  <span className="vlm-demo-value">
+                    {demoResult.model.confidence ?? "Unavailable"}
+                  </span>
+                </div>
+                <div className="vlm-demo-reasoning">
+                  <span className="vlm-demo-label">Reasoning</span>
+                  <p>{demoResult.model.reasoning ?? "No reasoning returned."}</p>
+                </div>
+              </div>
+            ) : null}
+          </section>
+          <section className="panel evaluation-panel">
+            <div className="panel-header">
+              <h2>Evaluation Metrics</h2>
+            </div>
+            <div className="evaluation-metrics-grid">
+              <div className="evaluation-metric-card">
+                <span className="evaluation-metric-label">Accuracy</span>
+                <strong className="evaluation-metric-value">
+                  {(summaryData.accuracy * 100).toFixed(2)}%
+                </strong>
+              </div>
+              <div className="evaluation-metric-card">
+                <span className="evaluation-metric-label">Correct Predictions</span>
+                <strong className="evaluation-metric-value">
+                  {summaryData.matched.toLocaleString()}
+                </strong>
+              </div>
+              <div className="evaluation-metric-card">
+                <span className="evaluation-metric-label">Dataset Size</span>
+                <strong className="evaluation-metric-value">
+                  {summaryData.total.toLocaleString()}
+                </strong>
+              </div>
+              <div className="evaluation-metric-card">
+                <span className="evaluation-metric-label">Match Rate</span>
+                <strong className="evaluation-metric-value">{evaluatedPct}%</strong>
+              </div>
+            </div>
+
+            <div className="evaluation-stats-grid">
+              <div className="evaluation-stats-card">
+                <h3>Ground Truth Counts</h3>
+                <ul className="evaluation-stats-list">
+                  {EVALUATION_LABELS.map((label) => (
+                    <li key={`gt-${label}`}>
+                      <span>{label}</span>
+                      <strong>
+                        {(groundTruthCounts[label] ?? 0).toLocaleString()}
+                      </strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="evaluation-stats-card">
+                <h3>Prediction Counts</h3>
+                <ul className="evaluation-stats-list">
+                  {EVALUATION_LABELS.map((label) => (
+                    <li key={`pred-${label}`}>
+                      <span>{label}</span>
+                      <strong>
+                        {(predictionCounts[label] ?? 0).toLocaleString()}
+                      </strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="evaluation-matrix-wrap">
+              <table className="evaluation-matrix">
+                <thead>
+                  <tr>
+                    <th>Actual \ Predicted</th>
+                    {EVALUATION_LABELS.map((label) => (
+                      <th key={`head-${label}`}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {evaluationMatrix.map((row) => (
+                    <tr key={row.groundTruth}>
+                      <th>{row.groundTruth}</th>
+                      {row.predictions.map((value, index) => (
+                        <td key={`${row.groundTruth}-${EVALUATION_LABELS[index]}`}>
+                          {value.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="evaluation-stats-card evaluation-confusions-card">
+              <h3>Most Common Errors</h3>
+              <ul className="evaluation-stats-list">
+                {topConfusions.map(([key, count]) => (
+                  <li key={key}>
+                    <span>{key}</span>
+                    <strong>{count.toLocaleString()}</strong>
+                  </li>
+                ))}
+              </ul>
             </div>
           </section>
           <section className="chat-container">
