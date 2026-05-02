@@ -1,0 +1,1353 @@
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from colorama import Fore, Style, init
+import time
+
+from app.data.data import retrieve_test_queries, get_new_damage_records, retrieve_true_data
+from app.services.query_parser import QueryParser
+from app.services.query_engine import QueryEngine
+from app.services.intent_dispatcher import IntentDispatcher
+from app.services.response_service import ResponseService
+from app.services.follow_up_detector import FollowUpDetector
+from app.services.query_rewriter import QueryRewriter
+
+init(autoreset=True)
+
+router = APIRouter()
+
+
+qp = QueryParser()
+dataset = get_new_damage_records()
+true_dataset = retrieve_true_data()
+qe = QueryEngine(true_dataset)
+dispatcher = IntentDispatcher(qe)
+response_service = ResponseService()
+follow_up_detector = FollowUpDetector()
+rewriter = QueryRewriter()
+
+class ChatMessage(BaseModel):
+    role: str      # "user" or "assistant"
+    content: str
+
+class QueryRequest(BaseModel):
+    query: str
+    history: Optional[List[ChatMessage]] = Field(default_factory=list)
+
+class TestResultResponse(BaseModel):
+    intent_accuracy: str
+    parameter_accuracy: str
+    total_time_taken: str
+    results: list
+
+# -----------------------------------------------------------------------------
+# Helper: format conversation history into a string for follow‑up detection
+def format_history(history: List[ChatMessage]) -> str:
+    """Convert a list of ChatMessage objects into a plain string."""
+    if not history:
+        return ""
+    # Keep only the last 6 messages (≈3 user/assistant turns)
+    return "\n".join([f"{msg.role.upper()}: {msg.content}" for msg in history[-6:]])
+
+# -----------------------------------------------------------------------------
+# Parser evaluation (unchanged except for using the unified format_history)
+def evaluate_parser(parser):
+    """Evaluate QueryParser against predefined test cases."""
+    TEST_CASES = retrieve_test_queries()
+    total = len(TEST_CASES)
+    correct_intent = 0
+    correct_params = 0
+    results = []
+    start_time = time.time()
+
+    for i, case in enumerate(TEST_CASES):
+        result = parser.parse(case["query"])
+        intent = result.get("intent")
+        params = {k: v for k, v in result.items() if k != "intent"}
+
+        expected_intent = case["expected_intent"]
+        expected_fields = case["expected_fields"]
+
+        intent_match = intent == expected_intent
+        param_match = all(params.get(key) == expected_fields[key] for key in expected_fields)
+
+        results.append({
+            "test_case": i + 1,
+            "query": case["query"],
+            "expected_intent": expected_intent,
+            "predicted_intent": intent,
+            "expected_parameters": expected_fields,
+            "predicted_parameters": params,
+            "intent_correct": intent_match,
+            "parameters_correct": param_match
+        })
+
+        # Console output (optional – useful for debugging)
+        print(Fore.YELLOW + f"Test Case {i + 1}")
+        print(Fore.CYAN + f"Query: {case['query']}")
+        print(Fore.GREEN + f"Expected Intent: {expected_intent}")
+        print(Fore.GREEN + f"Predicted Intent: {intent}")
+        print(Fore.GREEN + f"Expected Fields: {expected_fields}")
+        print(Fore.GREEN + f"Predicted Fields: {params}")
+        print(Fore.GREEN + "Intent Correct: Yes" if intent_match else Fore.RED + "Intent Correct: No")
+        print(Fore.GREEN + "Parameters Correct: Yes" if param_match else Fore.RED + "Parameters Correct: No")
+        print(Fore.WHITE + "-" * 50)
+
+        if intent_match:
+            correct_intent += 1
+        if param_match:
+            correct_params += 1
+
+    duration = time.time() - start_time
+    intent_acc = correct_intent / total
+    param_acc = correct_params / total
+
+    print(Fore.YELLOW + "\n=========================")
+    print(Fore.GREEN + f"Intent Accuracy: {correct_intent}/{total} = {intent_acc:.2%}")
+    print(Fore.GREEN + f"Parameter Accuracy: {correct_params}/{total} = {param_acc:.2%}")
+    print(Fore.YELLOW + "=========================")
+
+    return {
+        "intent_accuracy": f"{correct_intent}/{total} = {intent_acc:.2%}",
+        "parameter_accuracy": f"{correct_params}/{total} = {param_acc:.2%}",
+        "total_time_taken": f"{duration:.4f} seconds",
+        "results": results
+    }
+
+
+@router.post("/parseQuery/")
+async def parseQuery(req: str):
+    """Simple endpoint to test the parser alone."""
+    print(f"Req: {req}")
+    return qp.parse(req)
+
+@router.post("/dispatchQuery/")
+async def dispatchQuery(req: str):
+    """Parse and dispatch a query without conversation handling."""
+    print(f"Query To Be Dispatched: {req}")
+    parsed = qp.parse(req)
+    response = dispatcher.dispatch(parsed)
+    return response
+
+@router.post("/ask")
+def ask(request: QueryRequest):
+    """
+    Main query endpoint with follow‑up detection and conversation memory.
+    History is provided by the client – no server‑side memory to avoid cross‑user contamination.
+    """
+    try:
+        formatted_history = request.history
+        if request.history:
+            formatted_history = format_history(request.history or [])
+        is_follow_up = False
+        final_query = request.query
+
+        if formatted_history:
+            is_follow_up = follow_up_detector.is_follow_up(formatted_history, request.query)
+            if is_follow_up:
+                final_query = rewriter.rewrite(formatted_history, request.query)
+            
+        parsed = qp.parse(final_query)
+        
+        if parsed.get("needs_clarification"):
+            return {
+                "original_query": request.query,
+                "final_query": final_query,
+                "is_follow_up": is_follow_up,
+                "parsed": parsed,
+                "response": {
+                    "text": parsed.get("clarification_question"),
+                    "suggestions": [],
+                    "ui_actions": []
+                },
+                "requires_clarification": True
+            }
+
+        result = dispatcher.dispatch(parsed)
+        response = response_service.generate(final_query, parsed, result)
+
+        return {
+            "original_query": request.query,
+            "final_query": final_query,
+            "is_follow_up": is_follow_up,
+            "parsed": parsed,
+            "response": response
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/parser-test")
+def parser_test():
+    """Test only the QueryParser against predefined queries."""
+    parser = QueryParser()
+    return evaluate_parser(parser)
+
+@router.get("/test-results", response_model=TestResultResponse)
+def test_results():
+    """Alias for /parser-test returning structured response."""
+    parser = QueryParser()
+    return evaluate_parser(parser)
+
+@router.get("/showTest")
+def showTest():
+    """Return all test queries used by the parser test."""
+    return retrieve_test_queries()
+
+# -----------------------------------------------------------------------------
+# Sample dataset for integration tests
+SAMPLE_DATASET = [
+    {
+        "id": "b1",
+        "city": "Houston",
+        "status": "ok",
+        "model": {"damage_level": "destroyed", "confidence": 0.95, "reasoning": "Complete roof collapse and debris spread"},
+        "evaluation": {"model_prediction": "destroyed", "ground_truth": "destroyed", "match": True}
+    },
+    {
+        "id": "b2",
+        "city": "Houston",
+        "status": "ok",
+        "model": {"damage_level": "major-damage", "confidence": 0.82, "reasoning": "Severe structural damage"},
+        "evaluation": {"model_prediction": "major-damage", "ground_truth": "minor-damage", "match": False}
+    },
+    {
+        "id": "b3",
+        "city": "Miami",
+        "status": "ok",
+        "model": {"damage_level": "minor-damage", "confidence": 0.65, "reasoning": "Visible facade cracks"},
+        "evaluation": {"model_prediction": "minor-damage", "ground_truth": "minor-damage", "match": True}
+    },
+    {
+        "id": "b4",
+        "city": "Miami",
+        "status": "failed",
+        "model": {"damage_level": "destroyed", "confidence": 0.40, "reasoning": "Uncertain classification"},
+        "evaluation": {"model_prediction": "destroyed", "ground_truth": "major-damage", "match": False}
+    },
+    {
+        "id": "b5",
+        "city": "Dallas",
+        "status": "ok",
+        "model": {"damage_level": "no-damage", "confidence": 0.90, "reasoning": "No visible damage"},
+        "evaluation": {"model_prediction": "no-damage", "ground_truth": "no-damage", "match": True}
+    }
+]
+
+@router.get("/integration-test")
+def integration_test():
+    """Full pipeline test using the sample dataset."""
+    test_qp = QueryParser()
+    test_qe = QueryEngine(SAMPLE_DATASET)
+    test_dispatcher = IntentDispatcher(test_qe)
+
+    test_cases = [
+        {"query": "What damage was detected in Houston?", "expected_intent": "GET_DAMAGE_FOR_LOCATION", "expected_city": "Houston"},
+        {"query": "How many buildings are destroyed?", "expected_intent": "GET_DAMAGE_DISTRIBUTION", "expected_damage": "destroyed"},
+        {"query": "What is the model accuracy?", "expected_intent": "GET_MODEL_PERFORMANCE"},
+        {"query": "Show me failed predictions", "expected_intent": "GET_FAILURE_CASES"},
+        {"query": "Top 2 most damaged buildings", "expected_intent": "GET_TOP_K_DAMAGE", "expected_top_k": 2},
+        {"query": "Compare Houston and Dallas", "expected_intent": "COMPARE_LOCATIONS", "expected_cities": ["Houston", "Dallas"]},
+        {"query": "Why was building b1 classified as destroyed?", "expected_intent": "GET_MODEL_EXPLANATION", "expected_id": "b1"},
+        {"query": "Show confidence above 0.8", "expected_intent": "GET_CONFIDENCE_ANALYSIS", "expected_threshold": 0.8},
+        {"query": "Are there any issues in the dataset?", "expected_intent": "GET_DATASET_HEALTH"},
+        {"query": "Compare Houston, El Paso, and Dallas", "expected_intent": "COMPARE_LOCATIONS", "expected_cities": ["Houston", "El Paso", "Dallas"]},  # fixed: include all three
+        {"query": "Top buildings", "expected_intent": "GET_TOP_K_DAMAGE"},
+        {"query": "What is the weather today?", "expected_intent": "OUT_OF_SCOPE"}
+    ]
+
+    results = []
+    for test in test_cases:
+        try:
+            parsed = test_qp.parse(test["query"])
+            result = test_dispatcher.dispatch(parsed)
+
+            intent_match = parsed.get("intent") == test["expected_intent"]
+            city_match = parsed.get("city") == test.get("expected_city") if "expected_city" in test else True
+            damage_match = parsed.get("damage_level") == test.get("expected_damage") if "expected_damage" in test else True
+            top_k_match = parsed.get("top_k") == test.get("expected_top_k") if "expected_top_k" in test else True
+            id_match = parsed.get("id") == test.get("expected_id") if "expected_id" in test else True
+            threshold_match = parsed.get("confidence_threshold") == test.get("expected_threshold") if "expected_threshold" in test else True
+
+            # For city list comparison, we compare sets (order doesn't matter)
+            if "expected_cities" in test:
+                actual_cities = parsed.get("cities", [])
+                city_match = set(actual_cities) == set(test["expected_cities"])
+
+            valid_response = isinstance(result, dict) and "data" in result
+            passed = all([intent_match, city_match, damage_match, top_k_match, id_match, threshold_match, valid_response])
+
+            results.append({
+                "query": test["query"],
+                "expected_intent": test["expected_intent"],
+                "parsed_intent": parsed.get("intent"),
+                "intent_match": intent_match,
+                "city_match": city_match,
+                "damage_match": damage_match,
+                "top_k_match": top_k_match,
+                "id_match": id_match,
+                "threshold_match": threshold_match,
+                "valid_response": valid_response,
+                "passed": passed,
+                "parsed": parsed,
+                "result_preview": result.get("data", {}).get("type")
+            })
+        except Exception as e:
+            results.append({"query": test["query"], "error": str(e), "passed": False})
+
+    total = len(results)
+    passed = sum(1 for r in results if r.get("passed"))
+    return {
+        "total_tests": total,
+        "passed": passed,
+        "failed": total - passed,
+        "accuracy": round(passed / total, 3),
+        "details": results
+    }
+
+@router.get("/stress-test")
+def stress_test():
+    """Simple stress test by repeating a set of queries."""
+    queries = [
+        "Houston damage?",
+        "Compare cities",
+        "Top buildings",
+        "Failures?",
+        "Confidence low cases"
+    ]
+    results = []
+    for q in queries * 2:
+        parsed = qp.parse(q)
+        result = dispatcher.dispatch(parsed)
+        results.append(result["data"]["type"])
+    return {
+        "total_runs": len(results),
+        "unique_outputs": list(set(results))
+    }
+
+
+
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import PromptTemplate
+
+
+class FollowUpDetector:
+
+    def __init__(self, model_name="llama3.1:8b"):
+        self.llm = ChatOllama(model=model_name, temperature=0)
+
+        self.prompt = PromptTemplate(
+            input_variables=["history", "query"],
+            template="""
+You are a classifier that determines whether a user query is a follow-up question.
+
+A follow-up question depends on previous context.
+A standalone question is fully self-contained.
+
+Conversation History:
+{history}
+
+User Query:
+{query}
+
+Answer ONLY with:
+YES or NO
+"""
+        )
+
+    def is_follow_up(self, history: str, query: str) -> bool:
+        try:
+            chain = self.prompt | self.llm
+
+            response = chain.invoke({
+                "history": history,
+                "query": query
+            })
+
+            answer = response.content.strip().upper()
+
+            return answer == "YES"
+
+        except Exception:
+            return False
+        
+
+
+from collections import defaultdict
+from typing import List, Dict, Any, Optional
+import heapq
+import re
+
+
+class QueryEngine:
+    def __init__(self, dataset: List[Dict[str, Any]]):
+        self.data = dataset
+
+        self.by_city = defaultdict(list)
+        self.by_damage = defaultdict(list)
+        self.by_id = {}
+
+        self.city_stats = {}
+        self.city_totals = {}
+
+        for d in self.data:
+            city = self.normalize_key(d.get("city"))
+            model = d.get("model")
+
+            # index city (normalized)
+            if city:
+                self.by_city[city].append(d)
+
+            # index id
+            if d.get("id"):
+                self.by_id[d["id"]] = d
+
+            # index damage
+            if model and model.get("damage_level"):
+                self.by_damage[model["damage_level"]].append(d)
+
+        # precompute stats
+        for city, records in self.by_city.items():
+            self.city_stats[city] = self.compute_distribution(records)
+            self.city_totals[city] = len(records)
+
+    @staticmethod
+    def normalize_key(value: str) -> str:
+        if not value:
+            return None
+        value = value.strip().lower()
+        value = re.sub(r"\s+", " ", value)
+        return value
+    
+    def get_by_city(self, city: str) -> List[Dict[str, Any]]:
+        city = self.normalize_key(city)
+        return self.by_city.get(city, [])
+    
+    def get_city_distribution(self, city: str):
+        city = self.normalize_key(city)
+        return self.city_stats.get(city)
+
+
+    def get_by_id(self, id: str):
+        return self.by_id.get(id)
+
+    def get_all(self) -> List[Dict[str, Any]]:
+        return self.data
+
+
+    def filter(self, city: Optional[str] = None, damage_level: Optional[str] = None) -> List[Dict[str, Any]]:
+
+        if city:
+            city = self.normalize_key(city)
+            records = self.by_city.get(city, [])
+        else:
+            records = self.data
+
+        if damage_level:
+            records = [
+                r for r in records
+                if r.get("model") and r["model"].get("damage_level") == damage_level
+            ]
+
+        return records
+
+
+    def compute_distribution(self, records: List[Dict[str, Any]]) -> Dict[str, int]:
+        counts = {
+            "no-damage": 0,
+            "minor-damage": 0,
+            "major-damage": 0,
+            "destroyed": 0
+        }
+
+        for r in records:
+            model = r.get("model")
+            if model:
+                lvl = model.get("damage_level")
+                if lvl in counts:
+                    counts[lvl] += 1
+
+        return counts
+
+    def compute_performance(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+        valid = [r for r in records if r.get("evaluation")]
+
+        total = len(valid)
+        correct = sum(1 for r in valid if r["evaluation"].get("match") is True)
+
+        return {
+            "accuracy": round(correct / total, 4) if total > 0 else 0,
+            "total": total
+        }
+
+    def get_failures(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [
+            r for r in records
+            if r.get("evaluation") and r["evaluation"].get("match") is False
+        ]
+
+
+    def top_k_damage(self, k: int):
+        return heapq.nlargest(
+            k,
+            self.data,
+            key=lambda d: self._damage_rank(
+                (d.get("model") or {}).get("damage_level")
+            )
+        )
+
+    def confidence_analysis(self, records: List[Dict[str, Any]], threshold: Optional[float] = None) -> Dict[str, Any]:
+
+        confidences = [
+            r["model"]["confidence"]
+            for r in records
+            if r.get("model") and r["model"].get("confidence") is not None
+        ]
+
+        if threshold is not None:
+            confidences = [c for c in confidences if c >= threshold]
+
+        if not confidences:
+            return {
+                "average_confidence": None,
+                "count": 0
+            }
+
+        return {
+            "average_confidence": round(sum(confidences) / len(confidences), 4),
+            "count": len(confidences)
+        }
+
+    def dataset_health(self) -> Dict[str, int]:
+        total = len(self.data)
+        failed = sum(1 for d in self.data if d.get("status") != "ok")
+
+        return {
+            "total": total,
+            "failed": failed
+        }
+
+    @staticmethod
+    def _damage_rank(level: Optional[str]) -> int:
+        return {
+            "no-damage": 0,
+            "minor-damage": 1,
+            "major-damage": 2,
+            "destroyed": 3
+        }.get(level, -1)
+        
+
+
+from typing import Dict, Any
+
+
+class IntentDispatcher:
+
+    def __init__(self, query_engine):
+        self.qe = query_engine
+
+        self.routes = {
+            "GET_DAMAGE_FOR_LOCATION": self._handle_damage_for_location,
+            "GET_DAMAGE_DISTRIBUTION": self._handle_damage_distribution,
+            "GET_MODEL_PERFORMANCE": self._handle_model_performance,
+            "GET_FAILURE_CASES": self._handle_failure_cases,
+            "GET_TOP_K_DAMAGE": self._handle_top_k_damage,
+            "COMPARE_LOCATIONS": self._handle_compare_locations,
+            "GET_MODEL_EXPLANATION": self._handle_model_explanation,
+            "GET_CONFIDENCE_ANALYSIS": self._handle_confidence_analysis,
+            "GET_DATASET_HEALTH": self._handle_dataset_health,
+        }
+
+
+    def dispatch(self, parsed_query: Dict[str, Any]) -> Dict[str, Any]:
+        intent = parsed_query.get("intent")
+        
+        error = self._validate(intent, parsed_query)
+        if error:
+            return self._wrap_response({
+                "type": "error",
+                "message": error
+            })
+            
+        handler = self.routes.get(intent, self._handle_out_of_scope)
+
+        result = handler(parsed_query)
+
+        return self._wrap_response(result)
+    
+    def _validate(self, intent: str, q: Dict[str, Any]):
+        if intent == "GET_DAMAGE_FOR_LOCATION":
+            if not q.get("city"):
+                return "Which city are you asking about?"
+
+        if intent == "COMPARE_LOCATIONS":
+            if len(q.get("cities", [])) < 2:
+                return "Please provide at least two cities to compare."
+            
+        if intent == "GET_TOP_K_DAMAGE":
+            if q.get("top_k") is None:
+                return "How many buildings would you like to see?"
+
+        if intent == "GET_MODEL_EXPLANATION":
+            if not q.get("id"):
+                return "Which building ID are you referring to?"
+            
+        if intent in ["GET_DAMAGE_DISTRIBUTION", "GET_MODEL_PERFORMANCE", "GET_FAILURE_CASES", "GET_CONFIDENCE_ANALYSIS"]:
+            if not q.get("city"):
+                return "Please specify a city."
+
+        return None
+
+
+    def _handle_damage_for_location(self, q):
+        city = q.get("city")
+
+        records = self.qe.get_by_city(city)
+
+        if not records:
+            return {"type": "error", "message": f"No data found for {city}"}
+
+        stats = self.qe.get_city_distribution(city)
+        if stats is None:
+            stats = self.qe.compute_distribution(records)
+
+        total = self.qe.city_totals.get(city, len(records))
+
+        return {
+            "type": "damage_summary",
+            "city": city,
+            "count": total,
+            "stats": stats
+        }
+
+    def _handle_damage_distribution(self, q):
+        city = q.get("city")
+
+        records = self.qe.get_by_city(city)
+
+        if not records:
+            return {"type": "error", "message": f"No data found for {city}"}
+
+        dist = self.qe.get_city_distribution(city)
+        if dist is None:
+            dist = self.qe.compute_distribution(records)
+
+        return {
+            "type": "distribution",
+            "distribution": dist
+        }
+
+    def _handle_model_performance(self, q):
+        city = q.get("city")
+
+        records = self.qe.get_by_city(city)
+
+        if not records:
+            return {
+                "type": "model_performance",
+                "accuracy": 0,
+                "total": 0
+            }
+
+        return {
+            "type": "model_performance",
+            **self.qe.compute_performance(records)
+        }
+
+    def _handle_failure_cases(self, q):
+        city = q.get("city")
+
+        records = self.qe.get_by_city(city)
+
+        if not records:
+            return {"type": "failures", "count": 0, "examples": []}
+
+        failures = self.qe.get_failures(records)
+
+        return {
+            "type": "failures",
+            "count": len(failures),
+            "examples": failures[:3]
+        }
+
+    def _handle_top_k_damage(self, q):
+        k = q.get("top_k") or 5
+
+        return {
+            "type": "top_k",
+            "results": self.qe.top_k_damage(k)
+        }
+
+        
+    def _handle_compare_locations(self, q):
+        cities = q.get("cities", [])
+
+        results = {}
+
+        for city in cities:
+            records = self.qe.get_by_city(city)
+
+            if not records:
+                results[city] = {
+                    "error": f"No data found for {city}"
+                }
+                continue
+
+            stats = self.qe.get_city_distribution(city)
+            if stats is None:
+                stats = self.qe.compute_distribution(records)
+
+            total = self.qe.city_totals.get(city, len(records))
+
+            results[city] = {
+                "total": total,
+                "distribution": stats
+            }
+
+        return {
+            "type": "comparison",
+            "results": results
+        }
+
+    def _handle_model_explanation(self, q):
+        target_id = q.get("id")
+
+        d = self.qe.get_by_id(target_id)
+
+        if not d:
+            return {"type": "error", "message": "ID not found"}
+
+        model = d.get("model", {})
+
+        return {
+            "type": "explanation",
+            "damage_level": model.get("damage_level"),
+            "confidence": model.get("confidence"),
+            "reasoning": model.get("reasoning")
+        }
+
+    def _handle_confidence_analysis(self, q):
+        city = q.get("city")
+        threshold = q.get("confidence_threshold")
+
+        records = self.qe.get_by_city(city)
+        
+        if not records:
+            return {
+                "type": "confidence_analysis",
+                "average_confidence": None,
+                "count": 0
+            }
+
+        return {
+            "type": "confidence_analysis",
+            **self.qe.confidence_analysis(records, threshold)
+        }
+
+    def _handle_dataset_health(self, q):
+        return {
+            "type": "dataset_health",
+            **self.qe.dataset_health()
+        }
+
+    def _handle_out_of_scope(self, q):
+        return {
+            "type": "error",
+            "message": "Sorry, I didn't understand that query."
+        }
+
+
+    def _wrap_response(self, result):
+        return {
+            "data": result,
+            "suggestions": self._suggest(result),
+            "ui_actions": self._ui_actions(result)
+        }
+
+    def _suggest(self, result):
+        t = result["type"]
+
+        if t == "damage_summary":
+            return [
+                "Show damage distribution",
+                "Compare with another city",
+                "Analyze confidence"
+            ]
+
+        if t == "comparison":
+            return [
+                "Which city was most damaged?",
+                "Show top damaged buildings",
+                "Analyze model performance"
+            ]
+
+        if t == "confidence_analysis":
+            return [
+                "Show low confidence cases",
+                "Compare with another city"
+            ]
+
+        return []
+
+    def _ui_actions(self, result):
+        t = result["type"]
+
+        if t == "damage_summary":
+            return [{"type": "HIGHLIGHT_CITY", "city": result.get("city")}]
+
+        if t == "top_k":
+            return [{"type": "HIGHLIGHT_BUILDINGS"}]
+
+        return []
+
+
+import json
+from enum import Enum
+from typing import Dict, Any, Optional
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import PromptTemplate
+
+class ChatIntent(Enum):
+    GET_DAMAGE_FOR_LOCATION = "GET_DAMAGE_FOR_LOCATION"
+    GET_DAMAGE_DISTRIBUTION = "GET_DAMAGE_DISTRIBUTION"
+    GET_MODEL_PERFORMANCE = "GET_MODEL_PERFORMANCE"
+    GET_FAILURE_CASES = "GET_FAILURE_CASES"
+
+    GET_TOP_K_DAMAGE = "GET_TOP_K_DAMAGE"
+    COMPARE_LOCATIONS = "COMPARE_LOCATIONS"
+
+    GET_MODEL_EXPLANATION = "GET_MODEL_EXPLANATION"
+    GET_CONFIDENCE_ANALYSIS = "GET_CONFIDENCE_ANALYSIS"
+    GET_DATASET_HEALTH = "GET_DATASET_HEALTH"
+
+    OUT_OF_SCOPE = "OUT_OF_SCOPE"
+
+class QueryParser:
+    def __init__(self, model_name: str = "llama3.1:8b"):
+        self.llm = ChatOllama(model=model_name, temperature=0)
+
+        self.prompt = PromptTemplate(
+        input_variables=["query", "history"],
+        template="""
+You are a query parser for a disaster damage dataset chatbot. Your task is to extract the user's intent and relevant parameters from a natural language query.
+
+You must also determine if the query is missing required information.
+
+---
+
+Conversation History:
+{history}
+
+User Query:
+{query}
+
+---
+
+**Intent types:**
+- GET_DAMAGE_FOR_LOCATION: Retrieve damage summary for a single city.
+- GET_DAMAGE_DISTRIBUTION: Count of buildings per damage level.
+- GET_MODEL_PERFORMANCE: Overall model metrics.
+- GET_FAILURE_CASES: Examples where the model made mistakes.
+- GET_TOP_K_DAMAGE: List the K most severely damaged buildings.
+- COMPARE_LOCATIONS: Compare damage metrics between two or more cities.
+- GET_MODEL_EXPLANATION: Explanation for a specific building.
+- GET_CONFIDENCE_ANALYSIS: Analyze confidence scores.
+- GET_DATASET_HEALTH: Dataset statistics.
+- OUT_OF_SCOPE: Not related.
+
+---
+
+**Output fields:**
+- intent: string
+- city: string or null
+- cities: array
+- id: string or null
+- top_k: int or null
+- damage_level: string or null
+- confidence_threshold: float or null
+- needs_clarification: boolean
+- clarification_question: string or null
+
+---
+
+Rules:
+1. ALWAYS check the conversation history before asking for clarification
+2. If the query references something ambiguous (e.g., "that city", "which is worse", "what about it"):
+   - Try to resolve it using the conversation history
+3. ONLY ask for clarification if:
+   - The required information is missing AND
+   - It CANNOT be inferred from the conversation history
+
+4. Do NOT ask for clarification if a reasonable answer can be inferred from history
+
+5. Do NOT hallucinate values that are not present in the query or history
+
+6. If clarification is needed:
+   - set "needs_clarification": true
+   - provide a short clarification_question
+
+7. Otherwise:
+   - set "needs_clarification": false
+   - clarification_question = null
+
+---
+
+**Examples:**
+
+Query: What damage was detected in Houston?
+Output:
+{{ 
+  "intent": "GET_DAMAGE_FOR_LOCATION",
+  "city": "Houston",
+  "cities": [],
+  "id": null,
+  "top_k": null,
+  "damage_level": null,
+  "confidence_threshold": null,
+  "needs_clarification": false,
+  "clarification_question": null
+}}
+
+Query: Compare Houston and Miami
+Output:
+{{ 
+  "intent": "COMPARE_LOCATIONS",
+  "city": null,
+  "cities": ["Houston", "Miami"],
+  "id": null,
+  "top_k": null,
+  "damage_level": null,
+  "confidence_threshold": null,
+  "needs_clarification": false,
+  "clarification_question": null
+}}
+
+Query: Which is worse?
+Output:
+{{ 
+  "intent": "COMPARE_LOCATIONS",
+  "city": null,
+  "cities": [],
+  "id": null,
+  "top_k": null,
+  "damage_level": null,
+  "confidence_threshold": null,
+  "needs_clarification": true,
+  "clarification_question": "Which cities would you like to compare?"
+}}
+
+Query: Top damaged buildings
+Output:
+{{ 
+  "intent": "GET_TOP_K_DAMAGE",
+  "city": null,
+  "cities": [],
+  "id": null,
+  "top_k": null,
+  "damage_level": null,
+  "confidence_threshold": null,
+  "needs_clarification": true,
+  "clarification_question": "How many buildings would you like to see?"
+}}
+
+Query: What about Miami?
+Output:
+{{ 
+  "intent": "GET_DAMAGE_FOR_LOCATION",
+  "city": "Miami",
+  "cities": [],
+  "id": null,
+  "top_k": null,
+  "damage_level": null,
+  "confidence_threshold": null,
+  "needs_clarification": false,
+  "clarification_question": null
+}}
+
+Query: What about that city?
+Output:
+{{ 
+  "intent": "GET_DAMAGE_FOR_LOCATION",
+  "city": null,
+  "cities": [],
+  "id": null,
+  "top_k": null,
+  "damage_level": null,
+  "confidence_threshold": null,
+  "needs_clarification": true,
+  "clarification_question": "Which city are you referring to?"
+}}
+
+Query: What is the weather today?
+Output:
+{{ 
+  "intent": "OUT_OF_SCOPE",
+  "city": null,
+  "cities": [],
+  "id": null,
+  "top_k": null,
+  "damage_level": null,
+  "confidence_threshold": null,
+  "needs_clarification": false,
+  "clarification_question": null
+}}
+
+---
+
+Return ONLY JSON.
+"""
+)
+
+        self.chain = self.prompt | self.llm
+
+    def parse(self, query: str, history: Optional[str] = "") -> Dict[str, Any]:
+        raw = self._llm_parse(query, history)
+        return self._normalize(raw)
+
+    def _llm_parse(self, query: str, history: str = "") -> Dict[str, Any]:
+        response = self.chain.invoke({"query": query, "history": history or ""})
+        raw = response.content.strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        try:
+            return json.loads(raw)
+        except Exception as e:
+            return {
+                "intent": "OUT_OF_SCOPE",
+                "error": str(e),
+                "raw_output": raw
+            }
+                
+    
+    def _normalize(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        schema = {
+            "intent": "OUT_OF_SCOPE",
+            "city": None,
+            "cities": [],
+            "id": None,
+            "top_k": None,
+            "damage_level": None,
+            "confidence_threshold": None,
+            "needs_clarification": False,
+            "clarification_question": None
+        }
+
+        for key in schema:
+            if key not in result:
+                result[key] = schema[key]
+
+        try:
+            result["intent"] = ChatIntent(result["intent"]).value
+        except:
+            result["intent"] = ChatIntent.OUT_OF_SCOPE.value
+
+        if result["top_k"] is not None:
+            try:
+                result["top_k"] = int(result["top_k"])
+            except:
+                result["top_k"] = None
+
+        if result["cities"] is None:
+            result["cities"] = []
+
+        return result
+
+
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import PromptTemplate
+
+class QueryRewriter:
+
+    def __init__(self, model_name="llama3.1:8b"):
+        self.llm = ChatOllama(model=model_name, temperature=0)
+
+        self.prompt = PromptTemplate(
+            input_variables=["history", "query"],
+            template="""
+Rewrite the user's query into a fully self-contained question.
+
+Conversation History:
+{history}
+
+User Query:
+{query}
+
+Rules:
+- Include missing context (city, intent, etc.)
+- Do NOT answer the question
+- Do NOT add new information
+- Keep original meaning
+
+Return ONLY the rewritten query.
+"""
+        )
+
+    def rewrite(self, history: str, query: str) -> str:
+        try:
+            chain = self.prompt | self.llm
+
+            response = chain.invoke({
+                "history": history,
+                "query": query
+            })
+
+            rewritten = response.content.strip()
+
+            if not rewritten or len(rewritten) < 5:
+                return query
+
+            return rewritten
+
+        except Exception:
+            return query
+        
+
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import PromptTemplate
+from app.services.suggestion_generator import SuggestionGenerator
+
+class ResponseService:
+
+    def __init__(self, model_name="llama3.1:8b"):
+        self.llm = ChatOllama(model=model_name, temperature=0)
+        self.suggester = SuggestionGenerator()
+
+        self.prompt = PromptTemplate(
+            input_variables=["query", "data", "base_text"],
+            template="""
+You are an assistant explaining disaster damage analysis results.
+
+STRICT RULES:
+- Use ONLY the provided structured data
+- DO NOT introduce new numbers or estimates
+- DO NOT change numeric values
+- If data is missing, say so explicitly
+- Keep the explanation concise and factual
+
+User Query:
+{query}
+
+Structured Data (SOURCE OF TRUTH):
+{data}
+
+Base Explanation (already correct):
+{base_text}
+
+Rewrite ONLY for clarity and readability.
+Do NOT change facts or numbers.
+"""
+        )
+
+        
+    def generate(self, query: str, parsed: dict, result: dict):
+        data = result["data"]
+
+        text = self._enhance_with_llm(
+            query,
+            data,
+            self._generate_text(data)
+        )
+
+        suggestions = self.suggester.generate(query, data)
+
+        return {
+            "text": text,
+            "suggestions": suggestions,
+            "ui_actions": result.get("ui_actions", [])
+        }
+
+        
+    def _enhance_with_llm(self, query, data, base_text):
+        try:
+            chain = self.prompt | self.llm
+            response = chain.invoke({
+                "query": query,
+                "data": data,
+                "base_text": base_text
+            })
+
+            text = response.content.strip()
+
+            if not text or len(text) < 10:
+                return base_text
+
+            if str(data) not in str(text): 
+                return base_text
+
+            return text
+
+        except Exception:
+            return base_text
+
+
+    def _generate_text(self, data: dict) -> str:
+        t = data.get("type")
+
+        if t == "damage_summary":
+            return self._damage_summary(data)
+
+        if t == "distribution":
+            return self._distribution(data)
+
+        if t == "model_performance":
+            return self._model_performance(data)
+
+        if t == "failures":
+            return self._failures(data)
+
+        if t == "top_k":
+            return self._top_k(data)
+
+        if t == "comparison":
+            return self._comparison(data)
+
+        if t == "explanation":
+            return self._explanation(data)
+
+        if t == "confidence_analysis":
+            return self._confidence(data)
+
+        if t == "dataset_health":
+            return self._dataset_health(data)
+
+        if t == "error":
+            return data.get("message", "Sorry, something went wrong.")
+
+        return "I couldn't generate a response."
+
+
+    def _damage_summary(self, d):
+        stats = d["stats"]
+        total = d["count"]
+        city = d.get("city", "the dataset")
+
+        return (
+            f"In {city}, {total} buildings were analyzed. "
+            f"{stats['destroyed']} were destroyed, "
+            f"{stats['major-damage']} had major damage, "
+            f"{stats['minor-damage']} had minor damage, "
+            f"and {stats['no-damage']} showed no damage."
+        )
+
+    def _distribution(self, d):
+        dist = d["distribution"]
+
+        return (
+            f"Damage distribution: "
+            f"{dist['destroyed']} destroyed, "
+            f"{dist['major-damage']} major, "
+            f"{dist['minor-damage']} minor, "
+            f"{dist['no-damage']} no damage."
+        )
+
+    def _model_performance(self, d):
+        return (
+            f"The model achieved an accuracy of {d['accuracy']*100:.2f}% "
+            f"over {d['total']} evaluated samples."
+        )
+
+    def _failures(self, d):
+        return (
+            f"The model made {d['count']} incorrect predictions."
+        )
+
+    def _top_k(self, d):
+        return f"Here are the top {len(d['results'])} most severely damaged buildings."
+
+    def _comparison(self, d):
+        results = d["results"]
+
+        lines = []
+        for city, stats in results.items():
+            destroyed = stats["distribution"]["destroyed"]
+            total = stats["total"]
+            lines.append(f"{city}: {destroyed}/{total} destroyed")
+
+        return "Comparison:\n" + "\n".join(lines)
+
+    def _explanation(self, d):
+        return (
+            f"This building was classified as {d['damage_level']} "
+            f"with confidence {d['confidence']}. "
+            f"Reason: {d['reasoning']}"
+        )
+
+    def _confidence(self, d):
+        if d["average_confidence"] is None:
+            return "No confidence data available."
+
+        return (
+            f"The average model confidence is {d['average_confidence']:.2f} "
+            f"across {d['count']} predictions."
+        )
+
+    def _dataset_health(self, d):
+        return (
+            f"The dataset contains {d['total']} records, "
+            f"with {d['failed']} problematic entries."
+        )
+
+from langchain_core.prompts import PromptTemplate
+from langchain_ollama import ChatOllama
+
+
+class SuggestionGenerator:
+
+    def __init__(self, model_name="llama3.1:8b"):
+        self.llm = ChatOllama(model=model_name, temperature=0)
+        
+        self.prompt = PromptTemplate(
+            input_variables=["query", "data"],
+            template="""
+You are an assistant helping users explore a disaster damage dataset.
+You are generating follow-up questions for a disaster damage analysis chatbot.
+
+The system ONLY supports these actions:
+- Get damage summary for a city
+- Get damage distribution
+- Compare cities
+- Get top damaged buildings
+- Analyze confidence
+- View model performance
+- View failure cases
+
+Rules:
+- Generate exactly 3 follow-up questions
+- Each question MUST be answerable by the system
+- Use cities or data from the result when possible
+- Be specific and actionable
+- Questions must be natural and concise
+- Must relate to the dataset
+- Must NOT repeat the original query
+- Must NOT hallucinate data
+- Do NOT invent new analysis (no correlations, no external data)
+
+User Query:
+{query}
+
+Result Data:
+{data}
+
+Return ONLY a JSON array of 3 strings.
+"""
+)
+
+    def generate(self, query: str, data: dict):
+        try:
+            chain = self.prompt | self.llm
+
+            response = chain.invoke({
+                "query": query,
+                "data": data
+            })
+
+            raw = response.content.strip()
+
+            import json
+            suggestions = json.loads(raw)
+
+            if not isinstance(suggestions, list):
+                return []
+
+            return suggestions[:3]
+
+        except Exception:
+            return []

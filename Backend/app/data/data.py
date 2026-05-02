@@ -1,10 +1,17 @@
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pathlib import Path
 
 def get_damage_records():
     base_dir = Path(__file__).resolve().parent
     file_path = base_dir / "temp_data.json"
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+    
+def get_new_damage_records():
+    base_dir = Path(__file__).resolve().parent
+    file_path = base_dir / "damage_dataset.json"
 
     with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -108,3 +115,40 @@ def retrieve_test_queries():
 
     with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
+    
+# def retrieve_true_data():
+#     file_path = Path(__file__).resolve().parent.parent.parent / "data" / "santa_rosa" / "building_results.json"
+
+#     with open(file_path, "r") as f:
+#         return json.load(f)
+
+
+def retrieve_true_data() -> List[Dict[str, Any]]:
+    file_path = (
+        Path(__file__).resolve().parent.parent.parent
+        / "data"
+        / "santa_rosa"
+        / "building_results.json"
+    )
+
+    if not file_path.exists():
+        print(f"[data loader] No dataset found at {file_path!r}; returning empty list.")
+        return []
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data: object = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"[data loader] Failed to load JSON: {e}; returning empty list.")
+        return []
+
+    # Type narrowing / validation
+    if not isinstance(data, list):
+        print("[data loader] Expected a list; returning empty list.")
+        return []
+
+    if not all(isinstance(item, dict) for item in data):
+        print("[data loader] Expected list of dicts; returning empty list.")
+        return []
+
+    return data
