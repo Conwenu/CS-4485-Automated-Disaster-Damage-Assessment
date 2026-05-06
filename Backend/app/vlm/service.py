@@ -197,6 +197,18 @@ def assess_damage(pre_image_path, post_image_path, label_path):
     }
 
 
+def assess_damage_images_only(pre_image_path, post_image_path):
+    model_result = call_vlm(pre_image_path, post_image_path, critical_regions=[])
+
+    return {
+        "model": model_result,
+        "inputs": {
+            "pre_image": os.path.basename(pre_image_path),
+            "post_image": os.path.basename(post_image_path),
+        },
+    }
+
+
 def assess_damage_with_retry(pre_image_path, post_image_path, label_path, max_attempts=4, base_delay_seconds=0.5):
     last_error = None
 
