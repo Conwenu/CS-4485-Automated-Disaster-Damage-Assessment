@@ -40,18 +40,29 @@ app.include_router(
 )
 
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://main.d2oxlq5059eehn.amplifyapp.com"
+    ],  # no trailing slash
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(vlm_router)
+app.include_router(bounding_boxes_router, prefix="/api/bounding-boxes", tags=["bounding-boxes"])
+
 @app.get("/greet/{name}")
 def greet_user(name: str):
     greetings = ["Hello", "Hi", "Hey", "Greetings", "Howdy", "Salutations"]
-    greeting = random.choice(greetings)
-    return {"message": f"{greeting}, {name}!"}
+    return {"message": f"{random.choice(greetings)}, {name}!"}
 
 
 @app.get("/time")
 def get_time():
     now = datetime.now()
-    time_str = now.strftime("%I:%M:%S %p")
-    return {"current_time": time_str}
+    return {"current_time": now.strftime("%I:%M:%S %p")}
 
 
 @app.get("/health")
