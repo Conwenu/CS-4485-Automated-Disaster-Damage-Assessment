@@ -4,19 +4,14 @@ Suggestions are dataset-aware: the generator checks how many cities the
 engine knows about and avoids dead-end follow-ups (e.g. won't suggest
 "compare with another city" when there's only one city in the dataset).
 """
+
 from typing import Any, Dict, List, Optional
 
 
 class SuggestionGenerator:
     def __init__(self, query_engine=None) -> None:
-        # query_engine is optional so the class still works in tests / scripts
-        # that don't construct a full pipeline. When available, it's used to
-        # tailor suggestions to the actual dataset shape.
         self.qe = query_engine
 
-    # ------------------------------------------------------------------
-    # Public
-    # ------------------------------------------------------------------
     def generate(self, parsed, data: Dict[str, Any]) -> List[str]:
         if data is None:
             data = {}
@@ -54,9 +49,6 @@ class SuggestionGenerator:
 
         return self._generic()
 
-    # ------------------------------------------------------------------
-    # Dataset awareness
-    # ------------------------------------------------------------------
     def _multi_city(self) -> bool:
         return self.qe is not None and len(self.qe.known_cities()) > 1
 
@@ -64,9 +56,7 @@ class SuggestionGenerator:
         """Cities other than the one in the current result. Display-formatted."""
         if self.qe is None:
             return []
-        canonical_excluded = (
-            self.qe.resolve_city(exclude) if exclude else None
-        )
+        canonical_excluded = self.qe.resolve_city(exclude) if exclude else None
         out: List[str] = []
         for c in self.qe.known_cities():
             if c == canonical_excluded:
@@ -80,9 +70,6 @@ class SuggestionGenerator:
             part.capitalize() for part in city_key.replace("-", " ").split()
         )
 
-    # ------------------------------------------------------------------
-    # Per-result-type suggestions
-    # ------------------------------------------------------------------
     def _for_damage_summary(self, city: str) -> List[str]:
         suggestions = [
             f"Show the top 5 most damaged buildings in {city}",

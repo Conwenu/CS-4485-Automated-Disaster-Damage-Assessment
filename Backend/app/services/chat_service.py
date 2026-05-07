@@ -13,6 +13,7 @@ Per-turn flow:
   5. If the engine asks for more info, return a clarification envelope.
   6. Otherwise build the final response.
 """
+
 import logging
 from typing import Dict, Any, Optional, List
 
@@ -36,9 +37,6 @@ class ChatService:
         self.responder = ResponseService(query_engine=self.qe)
         self.external = ExternalKnowledgeService()
 
-    # ------------------------------------------------------------------
-    # Public
-    # ------------------------------------------------------------------
     def process_query(
         self,
         query: str,
@@ -122,16 +120,12 @@ class ChatService:
             external_info=external_info,
         )
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
     @staticmethod
     def _format_history(history: List[Dict[str, str]]) -> str:
         if not history:
             return "(no prior turns)"
         return "\n".join(
-            f"{m.get('role', 'user').upper()}: {m.get('content', '')}"
-            for m in history
+            f"{m.get('role', 'user').upper()}: {m.get('content', '')}" for m in history
         )
 
     def _merge_pending(
@@ -174,7 +168,9 @@ class ChatService:
         elif missing == "city":
             merged["city"] = parsed.city or answer
         elif missing == "cities":
-            new_city = (parsed.cities[0] if parsed.cities else None) or parsed.city or answer
+            new_city = (
+                (parsed.cities[0] if parsed.cities else None) or parsed.city or answer
+            )
             if new_city and new_city not in merged["cities"]:
                 merged["cities"].append(new_city)
         elif missing == "id":
@@ -198,7 +194,9 @@ class ChatService:
             )
         elif missing == "status":
             merged["status"] = parsed.status or (
-                "failed" if "fail" in answer.lower() else ("ok" if "ok" in answer.lower() else None)
+                "failed"
+                if "fail" in answer.lower()
+                else ("ok" if "ok" in answer.lower() else None)
             )
 
         return ParsedQuery(**merged)
@@ -220,9 +218,6 @@ class ChatService:
         except (ValueError, AttributeError):
             return None
 
-    # ------------------------------------------------------------------
-    # Response envelope
-    # ------------------------------------------------------------------
     @staticmethod
     def _build_response(
         original_query: str,

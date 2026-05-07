@@ -1,10 +1,24 @@
-from langchain_ollama import ChatOllama
 from langchain_core.prompts import PromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
+
+from typing import Optional
+from app.config import settings
+
 
 class QueryRewriter:
 
-    def __init__(self, model_name="llama3.1:8b"):
-        self.llm = ChatOllama(model=model_name, temperature=0)
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+    ):
+        self.llm = ChatGoogleGenerativeAI(
+            model=model or settings.GOOGLE_LITE_MODEL,
+            temperature=(
+                temperature if temperature is not None else settings.TEMPERATURE
+            ),
+            google_api_key=settings.GOOGLE_API_KEY,
+        )
 
         self.prompt = PromptTemplate(
             input_variables=["history", "query"],
@@ -34,17 +48,14 @@ Query: "Oakland"
 Rewritten: "Compare damage between Santa Rosa and Oakland"
 
 Return ONLY the rewritten query.
-"""
+""",
         )
 
     def rewrite(self, history: str, query: str) -> str:
         try:
             chain = self.prompt | self.llm
 
-            response = chain.invoke({
-                "history": history,
-                "query": query
-            })
+            response = chain.invoke({"history": history, "query": query})
 
             rewritten = response.content.strip()
 
@@ -55,4 +66,3 @@ Return ONLY the rewritten query.
 
         except Exception:
             return query
-        

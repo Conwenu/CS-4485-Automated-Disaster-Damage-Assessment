@@ -1,24 +1,3 @@
-# """External knowledge service — stub for the future RAG pipeline.
-
-# Swap the body with a real Chroma/FAISS retriever over FEMA docs when you're
-# ready. The interface is intentionally minimal: `retrieve(query) -> str | None`.
-# Nothing else in the chatbot needs to change.
-# """
-# from typing import Optional
-
-
-# class ExternalKnowledgeService:
-#     def retrieve(self, query: str) -> Optional[str]:
-#         if not query:
-#             return None
-#         # TODO: replace with real retrieval against FEMA docs.
-#         return (
-#             f"(Definition placeholder for: '{query}'. "
-#             "Real FEMA/RAG content will appear here later.)"
-#         )
-
-
-
 """External knowledge service.
 
 Thin wrapper around the LangChain RAG retriever. The retriever:
@@ -30,6 +9,7 @@ Thin wrapper around the LangChain RAG retriever. The retriever:
 Build the index first with:
     python -m app.rag.build_index
 """
+
 import logging
 from typing import Optional
 

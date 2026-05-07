@@ -7,10 +7,10 @@ decision — all via a single structured-output call.
 Returns a fully-validated ParsedQuery. On exception, returns a safe
 OUT_OF_SCOPE fallback so callers never crash.
 """
+
 import logging
 from typing import Optional, Dict, Any
 
-from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -236,10 +236,11 @@ class QueryParser:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
     ):
-        # self.llm = ChatOpenAI( model=model or settings.MODEL_NAME, temperature=temperature if temperature is not None else settings.TEMPERATURE, base_url=settings.OPENROUTER_BASE_URL, api_key=settings.OPENROUTER_API_KEY,)
         self.llm = ChatGoogleGenerativeAI(
             model=model or settings.GOOGLE_MODEL,
-            temperature=temperature if temperature is not None else settings.TEMPERATURE,
+            temperature=(
+                temperature if temperature is not None else settings.TEMPERATURE
+            ),
             google_api_key=settings.GOOGLE_API_KEY,
         )
 
@@ -251,7 +252,12 @@ class QueryParser:
         )
         self.chain = self.prompt | self.structured_llm
 
-    def parse(self, query: str, history: Optional[str] = "", pending_clarification: Optional[Dict[str, Any]] = None) -> ParsedQuery:
+    def parse(
+        self,
+        query: str,
+        history: Optional[str] = "",
+        pending_clarification: Optional[Dict[str, Any]] = None,
+    ) -> ParsedQuery:
         try:
             result: ParsedQuery = self.chain.invoke(
                 {
@@ -262,7 +268,9 @@ class QueryParser:
             )
             return result
         except Exception as e:
-            log.exception("Parser failed; returning OUT_OF_SCOPE fallback. query=%r", query)
+            log.exception(
+                "Parser failed; returning OUT_OF_SCOPE fallback. query=%r", query
+            )
             return ParsedQuery(
                 reasoning=f"Parser exception: {type(e).__name__}: {e}",
                 is_follow_up=False,

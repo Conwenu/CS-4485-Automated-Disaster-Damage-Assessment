@@ -6,6 +6,7 @@ Responsibilities:
 - Route to the correct engine method.
 - Attach UI actions and starter suggestions to every response.
 """
+
 from typing import Dict, Any, Optional
 from app.services.suggestion_generator import SuggestionGenerator
 
@@ -54,9 +55,6 @@ class IntentDispatcher:
         handler = self.routes.get(intent, self._handle_out_of_scope)
         return self._wrap(handler(parsed))
 
-    # -------------------------------------------------------------
-    # Validation
-    # -------------------------------------------------------------
     def _validate(self, intent: str, q: Dict[str, Any]) -> Optional[str]:
         city_required = {
             "GET_DAMAGE_FOR_LOCATION": "Which city are you asking about?",
@@ -81,7 +79,9 @@ class IntentDispatcher:
             return "Which building ID?"
 
         if intent == "GET_BUILDINGS_BY_DAMAGE" and not q.get("damage_level"):
-            return "Which damage level? (no-damage, minor-damage, major-damage, destroyed)"
+            return (
+                "Which damage level? (no-damage, minor-damage, major-damage, destroyed)"
+            )
 
         if intent == "GET_SCENE_SUMMARY" and not q.get("scene_id"):
             return "Please provide a scene ID."
@@ -90,7 +90,10 @@ class IntentDispatcher:
             if len(q.get("ids") or []) < 2:
                 return "Please name at least two building IDs to compare."
 
-        if intent == "GET_CONFIDENCE_OUTLIERS" and q.get("confidence_threshold") is None:
+        if (
+            intent == "GET_CONFIDENCE_OUTLIERS"
+            and q.get("confidence_threshold") is None
+        ):
             return "What confidence threshold (between 0 and 1)?"
 
         if intent == "FILTER_BY_STATUS" and not q.get("status"):
@@ -140,7 +143,7 @@ class IntentDispatcher:
             "missing_param": missing_map.get(intent),
             "params": carried,
         }
-        
+
     def _no_city_data_error(self, city: str) -> Dict[str, Any]:
         """Build a friendly error when a user-supplied city isn't in the dataset."""
         known = self.qe.known_cities()
@@ -156,7 +159,6 @@ class IntentDispatcher:
             }
         return {"type": "error", "message": f"No data found for {city}."}
 
-
     def _handle_damage_for_location(self, q):
         city = q.get("city")
         canonical = self.qe.resolve_city(city)
@@ -167,10 +169,9 @@ class IntentDispatcher:
         if not records:
             return self._no_city_data_error(city)
 
-        stats = (
-            self.qe.get_city_distribution(canonical)
-            or self.qe.compute_distribution(records)
-        )
+        stats = self.qe.get_city_distribution(
+            canonical
+        ) or self.qe.compute_distribution(records)
         return {
             "type": "damage_summary",
             "city": canonical,
@@ -272,22 +273,15 @@ class IntentDispatcher:
                 results[city] = {"error": f"No data found for {city}."}
                 continue
 
-            stats = (
-                self.qe.get_city_distribution(canonical)
-                or self.qe.compute_distribution(records)
-            )
+            stats = self.qe.get_city_distribution(
+                canonical
+            ) or self.qe.compute_distribution(records)
             results[canonical] = {
                 "total": len(records),
                 "distribution": stats,
                 "city_display": self._display(canonical),
             }
         return {"type": "comparison", "results": results}
-    
-    
-    
-    
-    
-    
 
     def _handle_model_explanation(self, q):
         rec = self.qe.get_by_id(q.get("id"))
@@ -352,7 +346,7 @@ class IntentDispatcher:
             "count": len(records),
             "building_ids": [r["id"] for r in records],
         }
-        
+
     def _handle_confidence_outliers(self, q):
         city = q.get("city")
         threshold = q.get("confidence_threshold", 0.5)
@@ -392,7 +386,8 @@ class IntentDispatcher:
         # the model got wrong).
         if damage_level:
             records = [
-                r for r in records
+                r
+                for r in records
                 if (r.get("evaluation") or {}).get("ground_truth") == damage_level
             ]
 
@@ -418,7 +413,6 @@ class IntentDispatcher:
             "city": canonical,
             **self.qe.get_accuracy_by_damage(canonical, q.get("damage_level")),
         }
-
 
     def _handle_scene_summary(self, q):
         summary = self.qe.get_scene_summary(q.get("scene_id"))
@@ -458,7 +452,10 @@ class IntentDispatcher:
         ids = q.get("ids") or []
         records = [r for r in (self.qe.get_by_id(i) for i in ids) if r]
         if not records:
-            return {"type": "error", "message": "None of the provided building IDs were found."}
+            return {
+                "type": "error",
+                "message": "None of the provided building IDs were found.",
+            }
         return {"type": "building_comparison", "buildings": records}
 
     def _handle_rank_cities(self, q):
@@ -495,9 +492,6 @@ class IntentDispatcher:
             ),
         }
 
-    # -------------------------------------------------------------
-    # Wrapping / suggestions / UI actions
-    # -------------------------------------------------------------
     def _wrap(self, result: Dict[str, Any]) -> Dict[str, Any]:
         wrapped = {
             "data": result,
@@ -534,15 +528,82 @@ class IntentDispatcher:
         return self._suggester.generate(parsed=None, data=result)
 
     def _ui_actions(self, result: Dict[str, Any]):
-        """UI action vocabulary. Your frontend teammate can extend this as the
-        map wiring is finalized (add bounds/colors to FOCUS_CITY, etc.).
-        """
         t = result.get("type")
+
         if t == "damage_summary":
-            return [{"type": "FOCUS_CITY", "city": result.get("city")}]
-        if t == "distribution" and result.get("city"):
-            return [{"type": "FOCUS_CITY", "city": result.get("city")}]
-        if t in ("top_k", "buildings_by_damage", "confidence_outliers", "filter_by_status"):
+            return [
+                {"type": "FOCUS_CITY", "city": result.get("city")},
+                {
+                    "type": "COLOR_ALL_BUILDINGS",
+                    "color_by": "damage_level",
+                    "city": result.get("city"),
+                },
+            ]
+
+        if t == "distribution":
+            city = result.get("city")
+            return [
+                {
+                    "type": "COLOR_ALL_BUILDINGS",
+                    "color_by": "damage_level",
+                    "city": city,
+                },
+                *(
+                    [{"type": "FOCUS_CITY", "city": city}]
+                    if city
+                    else [{"type": "RESET_MAP"}]
+                ),
+            ]
+
+        if t == "top_k":
+            actions = [
+                {
+                    "type": "HIGHLIGHT_BUILDINGS",
+                    "building_ids": result.get("building_ids", []),
+                    "color_by": "damage_level",
+                }
+            ]
+            if result.get("city"):
+                actions.append({"type": "FOCUS_CITY", "city": result.get("city")})
+            return actions
+
+        if t == "buildings_by_damage":
+            return [
+                {
+                    "type": "HIGHLIGHT_BUILDINGS",
+                    "building_ids": result.get("building_ids", []),
+                    "color_by": "damage_level",
+                },
+                (
+                    {"type": "FOCUS_CITY", "city": result.get("city")}
+                    if result.get("city")
+                    else {"type": "RESET_MAP"}
+                ),
+            ]
+
+        if t == "misclassifications":
+            return [
+                {
+                    "type": "HIGHLIGHT_BUILDINGS",
+                    "building_ids": [
+                        e.get("id")
+                        for e in (result.get("examples") or [])
+                        if e.get("id")
+                    ],
+                    "color_by": "match",
+                }
+            ]
+
+        if t == "confidence_outliers":
+            return [
+                {
+                    "type": "HIGHLIGHT_BUILDINGS",
+                    "building_ids": result.get("building_ids", []),
+                    "color_by": "confidence",
+                }
+            ]
+
+        if t == "filter_by_status":
             return [
                 {
                     "type": "HIGHLIGHT_BUILDINGS",
@@ -550,9 +611,76 @@ class IntentDispatcher:
                     "color_by": "damage_level",
                 }
             ]
+
         if t == "building_details":
             rec = result.get("record", {}) or {}
-            return [{"type": "HIGHLIGHT_BUILDINGS", "building_ids": [rec.get("id")]}]
+            bid = rec.get("id")
+            return (
+                [
+                    {"type": "FOCUS_BUILDING", "building_id": bid},
+                ]
+                if bid
+                else []
+            )
+
+        if t == "random_building":
+            rec = result.get("record", {}) or {}
+            bid = rec.get("id")
+            return (
+                [
+                    {"type": "FOCUS_BUILDING", "building_id": bid},
+                ]
+                if bid
+                else []
+            )
+
+        if t == "highest_confidence":
+            rec = result.get("record", {}) or {}
+            bid = rec.get("id")
+            return (
+                [
+                    {"type": "FOCUS_BUILDING", "building_id": bid},
+                    {
+                        "type": "HIGHLIGHT_BUILDINGS",
+                        "building_ids": [bid] if bid else [],
+                        "color_by": "confidence",
+                    },
+                ]
+                if bid
+                else []
+            )
+
         if t == "scene_summary":
-            return [{"type": "FOCUS_SCENE", "scene_id": result.get("scene_id")}]
+            return [
+                {"type": "FOCUS_SCENE", "scene_id": result.get("scene_id")},
+                {
+                    "type": "COLOR_ALL_BUILDINGS",
+                    "color_by": "damage_level",
+                    "city": result.get("city"),
+                },
+            ]
+
+        if t == "comparison":
+            cities = list((result.get("results") or {}).keys())
+            return [{"type": "FOCUS_CITIES", "cities": cities}] if cities else []
+
+        if t == "model_performance":
+            return [
+                {"type": "FOCUS_CITY", "city": result.get("city")},
+                {
+                    "type": "COLOR_ALL_BUILDINGS",
+                    "color_by": "match",
+                    "city": result.get("city"),
+                },
+            ]
+
+        if t == "accuracy_by_damage":
+            city = result.get("city")
+            return [
+                {"type": "COLOR_ALL_BUILDINGS", "color_by": "match", "city": city},
+            ]
+
+        if t in ("out_of_scope", "error", "clarification_needed", "dataset_health"):
+            return []
+
         return []

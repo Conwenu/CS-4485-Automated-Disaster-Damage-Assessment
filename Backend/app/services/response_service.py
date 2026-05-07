@@ -4,6 +4,7 @@ Generates deterministic prose from structured dispatcher output by default.
 An optional LLM "polish" pass (settings.USE_LLM_RESPONSE_POLISH=true) rewrites
 for tone, constrained by a number-preservation guard that actually works.
 """
+
 import re
 from typing import Dict, Any, Optional
 
@@ -23,7 +24,7 @@ class ResponseService:
     def generate(
         self,
         query: str,
-        parsed,  # ParsedQuery
+        parsed,
         result: Dict[str, Any],
         external_info: Optional[str] = None,
         external_note: Optional[str] = None,
@@ -57,25 +58,22 @@ class ResponseService:
         if "count" in data and "total" not in data:
             data["total"] = data["count"]
         return data
-    
+
     @staticmethod
     def _blend_external(base: str, external: str) -> str:
         if not external:
             return base
         return f"{external.strip()}\n\n{base.strip()}"
 
-
     def _polish(self, query: str, base_text: str) -> str:
         try:
             if self._llm is None:
-                # self._llm = ChatOpenAI(model=settings.MODEL_NAME,temperature=0, base_url=settings.OPENROUTER_BASE_URL, api_key=settings.OPENROUTER_API_KEY,)
-                self._llm = ChatGoogleGenerativeAI(model=settings.GOOGLE_MODEL, api_key=settings.GOOGLE_API_KEY ,temperature=0)
                 self._llm = ChatGoogleGenerativeAI(
                     model=settings.GOOGLE_MODEL,
+                    api_key=settings.GOOGLE_API_KEY,
                     temperature=0,
-                    google_api_key=settings.GOOGLE_API_KEY,
                 )
-                
+
             prompt = ChatPromptTemplate.from_template(
                 "You are rewriting an answer for readability.\n"
                 "Reformat the answer in proper Markdown. Choose the best structure yourself—use headings, bullet lists, bold for key terms, code blocks for code, etc., wherever it improves clarity or scannability.\n"
@@ -102,7 +100,6 @@ class ResponseService:
         out_nums = set(re.findall(r"\d+\.?\d*", rewritten))
         return base_nums.issubset(out_nums)
 
-
     def _format(self, d: Dict[str, Any]) -> str:
         t = d.get("type")
         formatters = {
@@ -127,15 +124,19 @@ class ResponseService:
             "city_ranking": self._f_city_ranking,
             "filter_by_status": self._f_filter_by_status,
             "error": lambda x: x.get("message", "Something went wrong."),
-            "out_of_scope": lambda x: x.get("message", "That's outside what I can answer."),
-            "clarification_needed": lambda x: x.get("message", "I need more information."),
+            "out_of_scope": lambda x: x.get(
+                "message", "That's outside what I can answer."
+            ),
+            "clarification_needed": lambda x: x.get(
+                "message", "I need more information."
+            ),
         }
         return formatters.get(t, lambda _: "I couldn't generate a response.")(d)
 
     @staticmethod
     def _city_label(d: Dict[str, Any]) -> str:
         return d.get("city_display") or d.get("city") or "the dataset"
-    
+
     @staticmethod
     def _building_line(r: Dict[str, Any]) -> str:
         """Render a slimmed building record (id + predicted + confidence)."""
@@ -144,7 +145,6 @@ class ResponseService:
         conf = r.get("confidence")
         conf_str = f"{conf:.2f}" if isinstance(conf, (int, float)) else "?"
         return f"  - {bid}: predicted {pred} (confidence {conf_str})"
-
 
     @staticmethod
     def _misclass_line(r: Dict[str, Any]) -> str:

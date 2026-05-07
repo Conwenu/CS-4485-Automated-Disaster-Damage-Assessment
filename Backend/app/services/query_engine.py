@@ -8,6 +8,7 @@ City matching is layered:
 Use resolve_city() at the start of any city-aware lookup. It returns the
 canonical dataset key (e.g. 'santa-rosa') or None if no confident match.
 """
+
 import difflib
 import heapq
 import random
@@ -54,9 +55,6 @@ class QueryEngine:
             self.city_stats[city] = self.compute_distribution(records)
             self.city_totals[city] = len(records)
 
-    # --------------------------------------------------------------
-    # City matching
-    # --------------------------------------------------------------
     @staticmethod
     def _city_variants(city: str) -> List[str]:
         """All canonical forms a user might type for a given dataset city.
@@ -96,17 +94,12 @@ class QueryEngine:
 
         # Stage 3: fuzzy match against known variants
         candidates = list(self._city_lookup.keys())
-        matches = difflib.get_close_matches(
-            normalized, candidates, n=1, cutoff=0.85
-        )
+        matches = difflib.get_close_matches(normalized, candidates, n=1, cutoff=0.85)
         if matches:
             return self._city_lookup[matches[0]]
 
         return None
 
-    # --------------------------------------------------------------
-    # Helpers
-    # --------------------------------------------------------------
     @staticmethod
     def _damage_rank(level: Optional[str]) -> int:
         return {
@@ -116,9 +109,6 @@ class QueryEngine:
             "destroyed": 3,
         }.get(level, -1)
 
-    # --------------------------------------------------------------
-    # Lookups
-    # --------------------------------------------------------------
     def get_by_city(self, city: Optional[str]) -> List[Dict[str, Any]]:
         canonical = self.resolve_city(city)
         return self.by_city.get(canonical, []) if canonical else []
@@ -137,9 +127,6 @@ class QueryEngine:
         """Canonical city keys present in the dataset."""
         return sorted(self.by_city.keys())
 
-    # --------------------------------------------------------------
-    # Aggregations
-    # --------------------------------------------------------------
     def compute_distribution(self, records: List[Dict[str, Any]]) -> Dict[str, int]:
         counts = {"no-damage": 0, "minor-damage": 0, "major-damage": 0, "destroyed": 0}
         for r in records:
@@ -151,7 +138,9 @@ class QueryEngine:
     def compute_performance(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
         valid = [r for r in records if r.get("evaluation")]
         total = len(valid)
-        correct = sum(1 for r in valid if (r.get("evaluation") or {}).get("match") is True)
+        correct = sum(
+            1 for r in valid if (r.get("evaluation") or {}).get("match") is True
+        )
         return {
             "accuracy": round(correct / total, 4) if total else 0,
             "total": total,
@@ -209,9 +198,6 @@ class QueryEngine:
         failed = sum(1 for d in self.data if d.get("status") != "ok")
         return {"total": total, "failed": failed}
 
-    # --------------------------------------------------------------
-    # Specialized queries
-    # --------------------------------------------------------------
     def get_buildings_by_damage(
         self,
         city: Optional[str],
@@ -242,11 +228,13 @@ class QueryEngine:
 
         if direction == "below":
             return [
-                r for r in records
+                r
+                for r in records
                 if (r.get("model") or {}).get("confidence", 1.0) < threshold
             ]
         return [
-            r for r in records
+            r
+            for r in records
             if (r.get("model") or {}).get("confidence", 0.0) > threshold
         ]
 
@@ -280,7 +268,9 @@ class QueryEngine:
             ]
         valid = [r for r in records if r.get("evaluation")]
         total = len(valid)
-        correct = sum(1 for r in valid if (r.get("evaluation") or {}).get("match") is True)
+        correct = sum(
+            1 for r in valid if (r.get("evaluation") or {}).get("match") is True
+        )
         return {
             "accuracy": round(correct / total, 4) if total else 0,
             "total": total,
