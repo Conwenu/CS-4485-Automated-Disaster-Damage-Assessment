@@ -196,7 +196,7 @@ function App() {
     setDemoResult(null);
 
     try {
-      const response = await fetch("http://localhost:8000/vlm/assess-demo", {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/vlm/assess-demo`,  {
         method: "POST",
         body: formData,
       });
