@@ -29,6 +29,10 @@ coverage.xml
 *.bak
 *.swp
 
+app/data/images
+
+workspace
+
 temp_images/
 uvicorn
 app/data/images/test/
