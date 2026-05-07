@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import "./App.css";
+import summaryData from "../../Backend/data/santa_rosa/building_summary.json"
 
 type DamageLevel = "noDamage" | "minorDamage" | "severeDamage";
 
@@ -55,8 +56,35 @@ type ChatMessage = {
   text: string;
 };
 
+type BoundingBox = {
+  building_id: string;
+  subtype: string;
+  bbox: [number, number, number, number]; 
+}
+
+type VlmDemoResult = {
+  model: {
+    damage_level?: string;
+    confidence?: number | null;
+    reasoning?: string;
+  };
+  inputs?: {
+    pre_image?: string;
+    post_image?: string;
+  };
+};
+
+const EVALUATION_LABELS = [
+  "no-damage",
+  "minor-damage",
+  "major-damage",
+  "destroyed",
+  "un-classified",
+] as const;
+
+type EvaluationLabel = (typeof EVALUATION_LABELS)[number];
+
 function App() {
-  const [selectedDisaster, setSelectedDisaster] = useState<string | null>(null);
   const [damageFilter, setDamageFilter] = useState<{
     noDamage: boolean;
     minorDamage: boolean;
@@ -82,6 +110,22 @@ function App() {
       text: "Ask me about damage patterns, affected areas, or overall impact.",
     },
   ]);
+  const [demoPreImage, setDemoPreImage] = useState<File | null>(null);
+  const [demoPostImage, setDemoPostImage] = useState<File | null>(null);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const [demoError, setDemoError] = useState("");
+  const [demoResult, setDemoResult] = useState<VlmDemoResult | null>(null);
+
+  const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
+  useEffect(() => {
+  fetch("http://localhost:8000/api/bounding-boxes/?image_id=santa-rosa-00000000")
+    .then((r) => r.json())
+    .then((data) => {
+      console.log("Bounding boxes:", data);
+      setBoundingBoxes(data);
+    })
+    .catch((err) => console.error("Failed to fetch bounding boxes:", err));
+  }, []);
 
   const selectedProperty = useMemo(
     () => PROPERTIES.find((p) => p.id === selectedPropertyId) ?? PROPERTIES[0],
@@ -135,6 +179,43 @@ function App() {
     setChatInput("");
   };
 
+  const handleVlmDemoSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!demoPreImage || !demoPostImage) {
+      setDemoError("Please upload both a pre-disaster image and a post-disaster image.");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("pre_image", demoPreImage);
+    formData.append("post_image", demoPostImage);
+
+    setDemoLoading(true);
+    setDemoError("");
+    setDemoResult(null);
+
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/vlm/assess-demo`,  {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const data = (await response.json()) as VlmDemoResult;
+      setDemoResult(data);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "The VLM evaluation request failed.";
+      setDemoError(message);
+    } finally {
+      setDemoLoading(false);
+    }
+  };
+
   const renderHouse = (property: PropertyPoint) => {
     const isVisible = filteredProperties.some((p) => p.id === property.id);
     if (!isVisible) {
@@ -167,6 +248,35 @@ function App() {
   const row1 = PROPERTIES.filter((p) => p.row === 1).sort(
     (a, b) => a.col - b.col,
   );
+  const groundTruthCounts = summaryData.ground_truth_counts as Partial<
+    Record<EvaluationLabel, number>
+  >;
+  const predictionCounts = summaryData.prediction_counts as Partial<
+    Record<EvaluationLabel, number>
+  >;
+  const confusionCounts = summaryData.confusion_counts as Record<string, number>;
+  const evaluationMatrix = useMemo(
+    () =>
+      EVALUATION_LABELS.map((groundTruth) => ({
+        groundTruth,
+        predictions: EVALUATION_LABELS.map(
+          (prediction) => confusionCounts[`${groundTruth} -> ${prediction}`] ?? 0,
+        ),
+      })),
+    [confusionCounts],
+  );
+  const topConfusions = useMemo(
+    () =>
+      Object.entries(confusionCounts)
+        .filter(([key, count]) => {
+          const [groundTruth, prediction] = key.split(" -> ");
+          return groundTruth !== prediction && count > 0;
+        })
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 4),
+    [confusionCounts],
+  );
+  const evaluatedPct = ((summaryData.matched / summaryData.total) * 100).toFixed(2);
 
   return (
     <div className="app">
@@ -176,20 +286,7 @@ function App() {
           <p className="app-subtitle">Vision–Language Model Powered</p>
         </div>
         <div className="app-header-right">
-          <button
-            className="header-button secondary"
-            type="button"
-            onClick={() => {
-              if (!selectedDisaster) {
-                setSelectedDisaster("Disaster not yet selected");
-              }
-            }}
-          >
-            Select Disaster
-          </button>
-          <button className="header-button primary" type="button">
-            Upload Imagery
-          </button>
+          <span className="header-disaster-pill">Santa Rosa Wildfire Disaster</span>
         </div>
       </header>
 
@@ -238,7 +335,6 @@ function App() {
             </div>
             <div className="imagery-details">
             <div className="imagery-pill">
-          {selectedDisaster ?? "No disaster selected"}
         </div>
         <div className="imagery-meta">
           <div className="imagery-meta-title">Selected property</div>
@@ -289,7 +385,40 @@ function App() {
               </li>
             </ul>
           </section>
+          <section className="panel summary-panel">
+            <div className="panel-header">
+              <h2>Summary</h2>
+            </div>
+            <div className="summary-grid">
+              <div className="summary-card severe">
+                <div className="summary-num">
+                  {(summaryData.prediction_counts["destroyed"] + summaryData.prediction_counts["major-damage"]).toLocaleString()}
+                </div>
+                <div className="summary-label">Severe</div>
+              </div>
+              <div className="summary-card minor">
+                <div className="summary-num">
+                  {summaryData.prediction_counts["minor-damage"].toLocaleString()}
+                </div>
+                <div className="summary-label">Minor</div>
+              </div>
+              <div className="summary-card none">
+                <div className="summary-num">
+                  {summaryData.prediction_counts["no-damage"].toLocaleString()}
+                </div>
+                <div className="summary-label">No Damage</div>
+              </div>
+              <div className="summary-card total">
+                <div className="summary-num">
+                  {summaryData.total.toLocaleString()}
+                </div>
+                <div className="summary-label">Total Buildings</div>
+              </div>
+            </div>
+          </section>
         </section>
+
+        
 
         <section className="right-column">
           <section className="panel map-panel">
@@ -339,6 +468,46 @@ function App() {
                     userSelect: "none",
                   }}
                 />
+                <svg
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "100%",
+                    transform: `scale(${mapZoom}) translate(${pan.x / mapZoom}px, ${pan.y / mapZoom}px)`,
+                    transformOrigin: "center center",
+                    transition: isDragging ? "none" : "transform 0.2s ease",
+                    overflow: "visible",
+                    pointerEvents: "none",
+                  }}
+                  viewBox="0 0 1024 1024"
+                  preserveAspectRatio="xMidYMid meet"
+                >
+                  {boundingBoxes
+                    .filter((box) => {
+                      if (box.subtype === "no-damage") return damageFilter.noDamage;
+                      if (box.subtype === "minor-damage") return damageFilter.minorDamage;
+                      return damageFilter.severeDamage;
+                    })
+                    .map(({ building_id, bbox }) => {
+                      const [minX, minY, maxX, maxY] = bbox;
+
+                      return (
+                        <rect
+                          key={building_id}
+                          x={minX}
+                          y={minY}
+                          width={maxX - minX}
+                          height={maxY - minY}
+                          fill="none"
+                          stroke="black"
+                          strokeWidth={2}
+                          strokeDasharray="4 2"
+                        />
+                      );
+                    })}
+                </svg>
                 <div style={{ position: "relative", zIndex: 1 }}>
                   <div className="map-houses-row">
                     {row0.map((property) => renderHouse(property))}
@@ -379,67 +548,223 @@ function App() {
               </div>
             </div>
           </section>
+          <section className="panel vlm-demo-panel">
+            <div className="panel-header">
+              <h2>VLM Evaluation</h2>
+            </div>
+            <p className="vlm-demo-copy">
+              Upload a pre-disaster and post-disaster image pair to evaluate damage level.
+            </p>
+            <form className="vlm-demo-form" onSubmit={handleVlmDemoSubmit}>
+              <label className="vlm-demo-field">
+                <span>Pre-disaster image</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={(event) =>
+                    setDemoPreImage(event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+              <label className="vlm-demo-field">
+                <span>Post-disaster image</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={(event) =>
+                    setDemoPostImage(event.target.files?.[0] ?? null)
+                  }
+                />
+              </label>
+              <button
+                className="vlm-demo-submit"
+                type="submit"
+                disabled={demoLoading}
+              >
+                {demoLoading ? "Evaluating..." : "Run VLM Evaluation"}
+              </button>
+            </form>
+            {demoError ? <p className="vlm-demo-error">{demoError}</p> : null}
+            {demoResult ? (
+              <div className="vlm-demo-result">
+                <div className="vlm-demo-result-row">
+                  <span className="vlm-demo-label">Damage level</span>
+                  <span className="vlm-demo-value">
+                    {demoResult.model.damage_level ?? "Unavailable"}
+                  </span>
+                </div>
+                <div className="vlm-demo-result-row">
+                  <span className="vlm-demo-label">Confidence</span>
+                  <span className="vlm-demo-value">
+                    {demoResult.model.confidence ?? "Unavailable"}
+                  </span>
+                </div>
+                <div className="vlm-demo-reasoning">
+                  <span className="vlm-demo-label">Reasoning</span>
+                  <p>{demoResult.model.reasoning ?? "No reasoning returned."}</p>
+                </div>
+              </div>
+            ) : null}
+          </section>
+          <section className="panel evaluation-panel">
+            <div className="panel-header">
+              <h2>Evaluation Metrics</h2>
+            </div>
+            <div className="evaluation-metrics-grid">
+              <div className="evaluation-metric-card">
+                <span className="evaluation-metric-label">Accuracy</span>
+                <strong className="evaluation-metric-value">
+                  {(summaryData.accuracy * 100).toFixed(2)}%
+                </strong>
+              </div>
+              <div className="evaluation-metric-card">
+                <span className="evaluation-metric-label">Correct Predictions</span>
+                <strong className="evaluation-metric-value">
+                  {summaryData.matched.toLocaleString()}
+                </strong>
+              </div>
+              <div className="evaluation-metric-card">
+                <span className="evaluation-metric-label">Dataset Size</span>
+                <strong className="evaluation-metric-value">
+                  {summaryData.total.toLocaleString()}
+                </strong>
+              </div>
+              <div className="evaluation-metric-card">
+                <span className="evaluation-metric-label">Match Rate</span>
+                <strong className="evaluation-metric-value">{evaluatedPct}%</strong>
+              </div>
+            </div>
+
+            <div className="evaluation-stats-grid">
+              <div className="evaluation-stats-card">
+                <h3>Ground Truth Counts</h3>
+                <ul className="evaluation-stats-list">
+                  {EVALUATION_LABELS.map((label) => (
+                    <li key={`gt-${label}`}>
+                      <span>{label}</span>
+                      <strong>
+                        {(groundTruthCounts[label] ?? 0).toLocaleString()}
+                      </strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="evaluation-stats-card">
+                <h3>Prediction Counts</h3>
+                <ul className="evaluation-stats-list">
+                  {EVALUATION_LABELS.map((label) => (
+                    <li key={`pred-${label}`}>
+                      <span>{label}</span>
+                      <strong>
+                        {(predictionCounts[label] ?? 0).toLocaleString()}
+                      </strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            <div className="evaluation-matrix-wrap">
+              <table className="evaluation-matrix">
+                <thead>
+                  <tr>
+                    <th>Actual \ Predicted</th>
+                    {EVALUATION_LABELS.map((label) => (
+                      <th key={`head-${label}`}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {evaluationMatrix.map((row) => (
+                    <tr key={row.groundTruth}>
+                      <th>{row.groundTruth}</th>
+                      {row.predictions.map((value, index) => (
+                        <td key={`${row.groundTruth}-${EVALUATION_LABELS[index]}`}>
+                          {value.toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="evaluation-stats-card evaluation-confusions-card">
+              <h3>Most Common Errors</h3>
+              <ul className="evaluation-stats-list">
+                {topConfusions.map(([key, count]) => (
+                  <li key={key}>
+                    <span>{key}</span>
+                    <strong>{count.toLocaleString()}</strong>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+          <section className="chat-container">
+            <div className="chat-header">
+              <span className="chat-title">AI Assistant</span>
+            </div>
+            <div className="chat-messages">
+              {chatMessages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`message-wrapper ${message.sender === "user" ? "user-wrapper" : "assistant-wrapper"}`}
+                >
+                  {/* Only show the AI icon for assistant messages */}
+                  {message.sender === "assistant" && (
+                    <div className="assistant-icon" title="AI Assistant">AI</div>
+                  )}
+                  
+                  <div className={`chat-bubble ${message.sender}`}>
+                    {message.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="chat-input-area">
+              {/* Refined Quick Actions to help with Capstone testing */}
+              <div className="quick-actions">
+                <button type="button" onClick={() => setChatInput("Analyze severe damage areas")}>
+                  Analyze Severe Damage
+                </button>
+                <button type="button" onClick={() => setChatInput("Show overall building damage")}>
+                  Show Overall Building Damage
+                </button>
+                <button type="button" onClick={() => setChatInput("Number of buildings affected")}>
+                  Show Number of Buildings Affected
+                </button>
+              </div>
+
+              <div className="chat-input-row">
+                <input
+                  className="chat-input"
+                  type="text"
+                  value={chatInput}
+                  onChange={(event) => setChatInput(event.target.value)}
+                  placeholder="Ask about damage patterns..."
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleSendChat();
+                    }
+                  }}
+                />
+                <button
+                  className="chat-send-button"
+                  type="button"
+                  onClick={handleSendChat}
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </section>
         </section>
       </main>
 
-      
-<section className="chat-container">
-  <div className="chat-messages">
-    {chatMessages.map((message) => (
-      <div
-        key={message.id}
-        className={`message-wrapper ${message.sender === "user" ? "user-wrapper" : "assistant-wrapper"}`}
-      >
-        {/* Only show the AI icon for assistant messages */}
-        {message.sender === "assistant" && (
-          <div className="assistant-icon" title="AI Assistant">AI</div>
-        )}
-        
-        <div className={`chat-bubble ${message.sender}`}>
-          {message.text}
-        </div>
-      </div>
-    ))}
-  </div>
-
-  <div className="chat-input-area">
-    {/* Refined Quick Actions to help with Capstone testing */}
-    <div className="quick-actions">
-      <button type="button" onClick={() => setChatInput("Analyze severe damage areas")}>
-        Analyze Severe Damage
-      </button>
-      <button type="button" onClick={() => setChatInput("Show overall building damage")}>
-        Show Overall Building Damage
-      </button>
-      <button type="button" onClick={() => setChatInput("Number of buildings affected")}>
-        Show Number of Buildings Affected
-      </button>
-    </div>
-
-    <div className="chat-input-row">
-      <input
-        className="chat-input"
-        type="text"
-        value={chatInput}
-        onChange={(event) => setChatInput(event.target.value)}
-        placeholder="Ask about damage patterns..."
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            handleSendChat();
-          }
-        }}
-      />
-      <button
-        className="chat-send-button"
-        type="button"
-        onClick={handleSendChat}
-      >
-        Send
-      </button>
-    </div>
-  </div>
-</section>
+    
     </div>
   );
 }
