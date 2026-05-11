@@ -334,20 +334,18 @@ function App() {
               </div>
             </div>
             <div className="imagery-details">
-            <div className="imagery-pill">
-        </div>
-        <div className="imagery-meta">
-          <div className="imagery-meta-title">Selected property</div>
-          <div className="imagery-meta-damage">
-            Predicted damage:{" "}
-            <span className={`damage-tag ${selectedProperty.damageLevel}`}>
-              {selectedProperty.damageLevel === "noDamage" && "No Damage"}
-              {selectedProperty.damageLevel === "minorDamage" && "Minor Damage"}
-              {selectedProperty.damageLevel === "severeDamage" && "Severe Damage"}
-            </span>
-          </div>
-        </div>
-      </div>
+              <div className="imagery-meta">
+                <div className="imagery-meta-title">Selected property</div>
+                <div className="imagery-meta-damage">
+                  Predicted damage:{" "}
+                  <span className={`damage-tag ${selectedProperty.damageLevel}`}>
+                    {selectedProperty.damageLevel === "noDamage" && "No Damage"}
+                    {selectedProperty.damageLevel === "minorDamage" && "Minor Damage"}
+                    {selectedProperty.damageLevel === "severeDamage" && "Severe Damage"}
+                  </span>
+                </div>
+              </div>
+            </div>
       
           </section>
 
