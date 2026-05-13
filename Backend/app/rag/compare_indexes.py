@@ -7,6 +7,7 @@ based on substring matching against expected keywords.
 Usage:
     python -m app.rag.compare_indexes
 """
+
 import time
 from pathlib import Path
 from typing import List, Tuple
@@ -15,8 +16,7 @@ from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 
-from app.rag.chains import build_grader_chain, build_generator_chain, collect_citations
-from app.config import settings
+from app.rag.chains import build_grader_chain, build_generator_chain
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -68,7 +68,9 @@ def load_store(persist_dir: Path) -> Chroma:
     )
 
 
-def run_pipeline(store: Chroma, query: str, grader, generator) -> Tuple[str, List[Document]]:
+def run_pipeline(
+    store: Chroma, query: str, grader, generator
+) -> Tuple[str, List[Document]]:
     """Mirror of KnowledgeRetriever.retrieve but without seed facts."""
     candidates = store.max_marginal_relevance_search(
         query, k=6, fetch_k=25, lambda_mult=0.6

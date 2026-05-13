@@ -36,10 +36,11 @@ class IntentDispatcher:
             "COMPARE_BUILDINGS": self._handle_compare_buildings,
             "RANK_CITIES_BY_DAMAGE": self._handle_rank_cities,
             "FILTER_BY_STATUS": self._handle_filter_by_status,
+            "OUT_OF_SCOPE": self._handle_out_of_scope,
         }
 
     def dispatch(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        intent = parsed.get("intent")
+        intent = parsed.get("intent") or "OUT_OF_SCOPE"
 
         err = self._validate(intent, parsed)
         if err:

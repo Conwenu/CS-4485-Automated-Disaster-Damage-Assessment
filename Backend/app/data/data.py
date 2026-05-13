@@ -2,20 +2,23 @@ import json
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 
+
 def get_damage_records():
     base_dir = Path(__file__).resolve().parent
     file_path = base_dir / "temp_data.json"
 
     with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
-    
+
+
 def get_new_damage_records():
     base_dir = Path(__file__).resolve().parent
     file_path = base_dir / "damage_dataset.json"
 
     with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
-    
+
+
 def retrieve_damage_data(query: str, limit: Optional[int] = 10) -> List[Dict]:
     """
     Search for damage records by city name.
@@ -55,6 +58,7 @@ def retrieve_damage_data(query: str, limit: Optional[int] = 10) -> List[Dict]:
 
     return results
 
+
 def format_context(records: List[Dict]) -> str:
     """
     Format damage records into a human-readable string.
@@ -64,11 +68,11 @@ def format_context(records: List[Dict]) -> str:
 
     lines = ["Damage assessment data:"]
     for r in records:
-        city = r.get('city', 'Unknown city')
-        status = r.get('status', 'unknown')
-        model = r.get('model', {})
-        damage_level = model.get('damage_level', 'unknown')
-        confidence = model.get('confidence', None)
+        city = r.get("city", "Unknown city")
+        status = r.get("status", "unknown")
+        model = r.get("model", {})
+        damage_level = model.get("damage_level", "unknown")
+        confidence = model.get("confidence", None)
 
         # Basic info line
         line = f"- {city}: damage level = {damage_level}"
@@ -77,17 +81,18 @@ def format_context(records: List[Dict]) -> str:
         else:
             line += " (confidence: N/A)"
 
-        if status != 'ok':
+        if status != "ok":
             line += f" [status: {status}]"
 
         lines.append(line)
 
         # should include model reasoning when available
-        reasoning = model.get('reasoning')
+        reasoning = model.get("reasoning")
         if reasoning:
             lines.append(f"    Reasoning: {reasoning}")
 
     return "\n".join(lines)
+
 
 def format_relevant_data(records: List[Dict]) -> List[Dict]:
     cleaned = []
@@ -95,32 +100,29 @@ def format_relevant_data(records: List[Dict]) -> List[Dict]:
     for r in records:
         model = r.get("model", {})
 
-        cleaned.append({
-            "id": r.get("id"),
-            "city": r.get("city"),
-            "damage_level": model.get("damage_level"),
-            "confidence": model.get("confidence"),
-            "status": r.get("status")
-        })
+        cleaned.append(
+            {
+                "id": r.get("id"),
+                "city": r.get("city"),
+                "damage_level": model.get("damage_level"),
+                "confidence": model.get("confidence"),
+                "status": r.get("status"),
+            }
+        )
 
     return cleaned
+
 
 def retrieve_test_queries():
     # TODO:
     # Instead of reading this file every time the function is called,
     # load it once when the FastAPI app starts and store it in app.state. r to just load it up on startup
-    
+
     base_dir = Path(__file__).resolve().parent
     file_path = base_dir / "test_queries.json"
 
     with open(file_path, "r", encoding="utf-8") as f:
         return json.load(f)
-    
-# def retrieve_true_data():
-#     file_path = Path(__file__).resolve().parent.parent.parent / "data" / "santa_rosa" / "building_results.json"
-
-#     with open(file_path, "r") as f:
-#         return json.load(f)
 
 
 def retrieve_true_data() -> List[Dict[str, Any]]:

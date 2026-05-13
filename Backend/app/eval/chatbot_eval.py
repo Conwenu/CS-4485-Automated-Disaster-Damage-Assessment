@@ -6,6 +6,7 @@ Usage:
     python -m app.eval.chatbot_eval --intent GET_DAMAGE_FOR_LOCATION
     python -m app.eval.chatbot_eval --limit 10
 """
+
 import argparse
 import sys
 import time
@@ -48,7 +49,9 @@ def _compare(expected, actual) -> bool:
     return _norm(expected) == _norm(actual)
 
 
-def run_case(parser: QueryParser, case: Dict[str, Any]) -> Tuple[bool, List[str], Dict[str, Any]]:
+def run_case(
+    parser: QueryParser, case: Dict[str, Any]
+) -> Tuple[bool, List[str], Dict[str, Any]]:
     history_turns = case.get("history") or []
     formatted = (
         "\n".join(f"{t['role'].upper()}: {t['content']}" for t in history_turns)
@@ -88,15 +91,13 @@ def main():
         cases = [c for c in cases if c["expected"].get("intent") == args.intent]
     if args.limit:
         cases = cases[: args.limit]
-        
-        
-    
+
     print("Tier distribution:", Counter(c.get("tier") for c in cases))
 
     parser = QueryParser()
-    
+
     start_time = time.time()
-    
+
     total = 0
     passed = 0
     per_intent_total: Dict[str, int] = defaultdict(int)
@@ -105,36 +106,36 @@ def main():
     per_tier_pass = defaultdict(int)
 
     for i, case in enumerate(cases, start=1):
-            intent = case["expected"].get("intent", "UNKNOWN")
-            per_intent_total[intent] += 1
-            tier = case.get("tier", "1")    
-            per_tier_total[tier] += 1  
-            total += 1
+        intent = case["expected"].get("intent", "UNKNOWN")
+        per_intent_total[intent] += 1
+        tier = case.get("tier", "1")
+        per_tier_total[tier] += 1
+        total += 1
 
-            try:
-                ok, failures, actual = run_case(parser, case)
-            except Exception as e:
-                ok = False
-                failures = [f"  exception: {type(e).__name__}: {e}"]
-                actual = {}
+        try:
+            ok, failures, actual = run_case(parser, case)
+        except Exception as e:
+            ok = False
+            failures = [f"  exception: {type(e).__name__}: {e}"]
+            actual = {}
 
-            if ok:
-                passed += 1
-                per_intent_pass[intent] += 1
-                per_tier_pass[tier] += 1       
-                if args.verbose:
-                    print(f"[{i:3d}] PASS  [{intent}]  {case['query'][:80]}")
-            else:
-                print(f"[{i:3d}] FAIL  [{intent}]  {case['query'][:80]}")
-                for f in failures:
-                    print(f)
-                if actual.get("reasoning"):
-                    print(f"  reasoning: {actual['reasoning']}")
-                print()
+        if ok:
+            passed += 1
+            per_intent_pass[intent] += 1
+            per_tier_pass[tier] += 1
+            if args.verbose:
+                print(f"[{i:3d}] PASS  [{intent}]  {case['query'][:80]}")
+        else:
+            print(f"[{i:3d}] FAIL  [{intent}]  {case['query'][:80]}")
+            for f in failures:
+                print(f)
+            if actual.get("reasoning"):
+                print(f"  reasoning: {actual['reasoning']}")
+            print()
 
-            # Throttle for Gemini free tier (5 RPM). Skip on last case.
-            if i < len(cases):
-                time.sleep(settings.EVAL_REQUEST_DELAY_SECONDS)
+        # Throttle for Gemini free tier (5 RPM). Skip on last case.
+        if i < len(cases):
+            time.sleep(settings.EVAL_REQUEST_DELAY_SECONDS)
 
     print()
     print("=" * 70)
@@ -148,8 +149,6 @@ def main():
         bar = "#" * int(pct // 5)
         print(f"  {intent:<30} {p:>3}/{t:<3} {pct:>5.1f}%  {bar}")
     print()
-    
-
 
     # inside the loop:
     tier = case.get("tier", 1)
@@ -157,7 +156,6 @@ def main():
     if ok:
         per_tier_pass[tier] += 1
 
-        
     elapsed = time.time() - start_time
     print(f"\nTotal time: {elapsed:.2f} seconds")
 

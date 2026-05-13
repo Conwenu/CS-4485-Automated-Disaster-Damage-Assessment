@@ -5,13 +5,21 @@ answers for the questions users will ask most often, without any LLM call.
 Sources: xBD paper (Gupta et al., 2019), FEMA Preliminary Damage Assessment
 Guide (2025), and the Joint Damage Scale used by both.
 """
-from typing import Dict, List, Optional, Tuple
 
+from typing import Dict, List, Optional, Tuple
 
 # (matching keywords, answer, citation)
 SEED_FACTS: List[Tuple[List[str], str, str]] = [
     (
-        ["no-damage", "no damage", "undamaged", "intact", "no visible damage"],
+        [
+            "what does no-damage mean",
+            "what is no-damage",
+            "define no-damage",
+            "no damage category",
+            "what counts as no damage",
+            "no visible damage definition",
+            "no-damage definition",
+        ],
         "In the Joint Damage Scale used by xBD and FEMA, 'no-damage' means the "
         "building shows no visible damage from the disaster. The structure is "
         "intact, with no visible cracks, no displaced debris, no standing water, "
@@ -19,7 +27,15 @@ SEED_FACTS: List[Tuple[List[str], str, str]] = [
         "xBD Joint Damage Scale (Gupta et al., 2019); FEMA PDA Guide (2025)",
     ),
     (
-        ["minor-damage", "minor damage", "lightly damaged"],
+        [
+            "what is minor damage",
+            "what does minor-damage mean",
+            "define minor damage",
+            "minor damage category",
+            "what counts as minor damage",
+            "minor-damage definition",
+            "minor damage level",
+        ],
         "'Minor-damage' indicates the building is partially affected but largely "
         "functional. Typical signs include superficial or cosmetic damage, missing "
         "roof elements, visible cracks, water surrounding (but not entering) the "
@@ -28,7 +44,15 @@ SEED_FACTS: List[Tuple[List[str], str, str]] = [
         "xBD Joint Damage Scale (Gupta et al., 2019)",
     ),
     (
-        ["major-damage", "major damage", "heavily damaged", "significant damage"],
+        [
+            "what is major damage",
+            "major-damage definition",
+            "what does major-damage mean",
+            "define major damage",
+            "major damage category",
+            "what counts as major damage",
+            "major damage level",
+        ],
         "'Major-damage' indicates substantial structural compromise. Typical signs "
         "include partial wall or roof collapse, the structure being surrounded by "
         "water or mud, water lines reaching between the first-floor windows and "
@@ -37,7 +61,15 @@ SEED_FACTS: List[Tuple[List[str], str, str]] = [
         "xBD Joint Damage Scale (Gupta et al., 2019)",
     ),
     (
-        ["destroyed", "totaled", "leveled", "wiped out", "completely destroyed"],
+        [
+            "what does destroyed mean",
+            "define destroyed",
+            "what is destroyed damage",
+            "destroyed damage level",
+            "what counts as destroyed",
+            "destroyed category",
+            "destroyed definition",
+        ],
         "'Destroyed' means the structure is scorched, completely collapsed, "
         "covered with water or mud, or no longer present. Indicators include "
         "only the foundation remaining, two or more structural failures, threat "
@@ -46,8 +78,16 @@ SEED_FACTS: List[Tuple[List[str], str, str]] = [
         "xBD Joint Damage Scale (Gupta et al., 2019)",
     ),
     (
-        ["joint damage scale", "damage scale", "damage categories",
-         "classification scheme", "ordinal scale"],
+        [
+            "joint damage scale",
+            "what is the joint damage scale",
+            "damage scale used",
+            "damage classification scheme",
+            "ordinal damage scale",
+            "xbd damage scale",
+            "four damage categories",
+            "damage levels in xbd",
+        ],
         "The Joint Damage Scale used in xBD is a four-level ordinal scheme: "
         "0 = no-damage, 1 = minor-damage, 2 = major-damage, 3 = destroyed. It "
         "was created in collaboration with CAL FIRE, the California Air National "
@@ -56,8 +96,15 @@ SEED_FACTS: List[Tuple[List[str], str, str]] = [
         "xBD paper (Gupta et al., 2019), Section 4",
     ),
     (
-        ["fema", "how fema classifies", "fema damage assessment", "pda",
-         "preliminary damage assessment"],
+        [
+            "how fema classifies",
+            "fema damage assessment process",
+            "what is a pda",
+            "preliminary damage assessment",
+            "how does fema classify",
+            "fema classification process",
+            "what does fema look for",
+        ],
         "FEMA conducts Preliminary Damage Assessments (PDAs) after a disaster to "
         "determine eligibility for federal assistance. Inspectors categorize each "
         "structure as Destroyed, Major, Minor, Affected, or No Visible Damage, "
@@ -67,8 +114,15 @@ SEED_FACTS: List[Tuple[List[str], str, str]] = [
         "FEMA Preliminary Damage Assessment Guide (2025)",
     ),
     (
-        ["why hard", "hard to classify", "difficult to distinguish",
-         "why is the model bad", "why minor and major"],
+        [
+            "why hard to classify",
+            "why is the model bad at intermediate",
+            "why minor and major are hard",
+            "difficult to distinguish damage",
+            "why does the model struggle",
+            "intermediate damage hard",
+            "why is major damage accuracy low",
+        ],
         "Intermediate damage categories (minor and major) are notoriously hard to "
         "distinguish from overhead imagery. The visual gap between 'a damaged "
         "roof' (minor) and 'partial collapse' (major) is subtle in top-down views, "

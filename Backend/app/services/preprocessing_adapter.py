@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 from app.services.preprocessing import get_pairs
 

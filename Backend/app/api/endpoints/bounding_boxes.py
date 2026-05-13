@@ -4,6 +4,7 @@ from pathlib import Path
 
 router = APIRouter()
 
+
 @router.get("/")
 def bounding_boxes(image_id: str = Query(default="santa-rosa-00000000")):
     base = Path(__file__).parent.parent.parent

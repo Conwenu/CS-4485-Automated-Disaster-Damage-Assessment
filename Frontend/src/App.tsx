@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import "./App.css";
-import summaryData from "../../Backend/data/santa_rosa/building_summary.json"
+import summaryData from "../../Backend/data/santa_rosa/building_summary.json";
+import FloatingChatbot from "./FloatingChatbot";
 
 type DamageLevel = "noDamage" | "minorDamage" | "severeDamage";
 
@@ -50,17 +51,11 @@ const PROPERTIES: PropertyPoint[] = [
   },
 ];
 
-type ChatMessage = {
-  id: number;
-  sender: "user" | "assistant";
-  text: string;
-};
-
 type BoundingBox = {
   building_id: string;
   subtype: string;
-  bbox: [number, number, number, number]; 
-}
+  bbox: [number, number, number, number];
+};
 
 type VlmDemoResult = {
   model: {
@@ -98,18 +93,13 @@ function App() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [activeImageTab, setActiveImageTab] = useState<"before" | "after">("after");
+  const [activeImageTab, setActiveImageTab] = useState<"before" | "after">(
+    "after",
+  );
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>(
     PROPERTIES[2].id,
   );
-  const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: 1,
-      sender: "assistant",
-      text: "Ask me about damage patterns, affected areas, or overall impact.",
-    },
-  ]);
+
   const [demoPreImage, setDemoPreImage] = useState<File | null>(null);
   const [demoPostImage, setDemoPostImage] = useState<File | null>(null);
   const [demoLoading, setDemoLoading] = useState(false);
@@ -118,13 +108,15 @@ function App() {
 
   const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
   useEffect(() => {
-  fetch("http://localhost:8000/api/bounding-boxes/?image_id=santa-rosa-00000000")
-    .then((r) => r.json())
-    .then((data) => {
-      console.log("Bounding boxes:", data);
-      setBoundingBoxes(data);
-    })
-    .catch((err) => console.error("Failed to fetch bounding boxes:", err));
+    fetch(
+      "http://localhost:8000/api/bounding-boxes/?image_id=santa-rosa-00000000",
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        console.log("Bounding boxes:", data);
+        setBoundingBoxes(data);
+      })
+      .catch((err) => console.error("Failed to fetch bounding boxes:", err));
   }, []);
 
   const selectedProperty = useMemo(
@@ -155,35 +147,15 @@ function App() {
     });
   };
 
-  const handleSendChat = () => {
-    const trimmed = chatInput.trim();
-    if (!trimmed) return;
-
-    const nextId = chatMessages.length
-      ? chatMessages[chatMessages.length - 1].id + 1
-      : 1;
-
-    const userMessage: ChatMessage = {
-      id: nextId,
-      sender: "user",
-      text: trimmed,
-    };
-
-    const assistantMessage: ChatMessage = {
-      id: nextId + 1,
-      sender: "assistant",
-      text: `This is a placeholder analysis for "${trimmed}". Once the model is connected, this area will summarize damage patterns and affected properties for the selected disaster.`,
-    };
-
-    setChatMessages((prev) => [...prev, userMessage, assistantMessage]);
-    setChatInput("");
-  };
-
-  const handleVlmDemoSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleVlmDemoSubmit = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
     event.preventDefault();
 
     if (!demoPreImage || !demoPostImage) {
-      setDemoError("Please upload both a pre-disaster image and a post-disaster image.");
+      setDemoError(
+        "Please upload both a pre-disaster image and a post-disaster image.",
+      );
       return;
     }
 
@@ -196,10 +168,13 @@ function App() {
     setDemoResult(null);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/vlm/assess-demo`,  {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/vlm/assess-demo`,
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
 
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`);
@@ -209,7 +184,9 @@ function App() {
       setDemoResult(data);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "The VLM evaluation request failed.";
+        error instanceof Error
+          ? error.message
+          : "The VLM evaluation request failed.";
       setDemoError(message);
     } finally {
       setDemoLoading(false);
@@ -254,13 +231,17 @@ function App() {
   const predictionCounts = summaryData.prediction_counts as Partial<
     Record<EvaluationLabel, number>
   >;
-  const confusionCounts = summaryData.confusion_counts as Record<string, number>;
+  const confusionCounts = summaryData.confusion_counts as Record<
+    string,
+    number
+  >;
   const evaluationMatrix = useMemo(
     () =>
       EVALUATION_LABELS.map((groundTruth) => ({
         groundTruth,
         predictions: EVALUATION_LABELS.map(
-          (prediction) => confusionCounts[`${groundTruth} -> ${prediction}`] ?? 0,
+          (prediction) =>
+            confusionCounts[`${groundTruth} -> ${prediction}`] ?? 0,
         ),
       })),
     [confusionCounts],
@@ -276,7 +257,10 @@ function App() {
         .slice(0, 4),
     [confusionCounts],
   );
-  const evaluatedPct = ((summaryData.matched / summaryData.total) * 100).toFixed(2);
+  const evaluatedPct = (
+    (summaryData.matched / summaryData.total) *
+    100
+  ).toFixed(2);
 
   return (
     <div className="app">
@@ -286,11 +270,14 @@ function App() {
           <p className="app-subtitle">Vision–Language Model Powered</p>
         </div>
         <div className="app-header-right">
-          <span className="header-disaster-pill">Santa Rosa Wildfire Disaster</span>
+          <span className="header-disaster-pill">
+            Santa Rosa Wildfire Disaster
+          </span>
         </div>
       </header>
 
       <main className="app-main">
+        <FloatingChatbot />
         <section className="left-column">
           <section className="panel imagery-panel">
             <div className="imagery-tabs">
@@ -330,7 +317,9 @@ function App() {
                 />
               )}
               <div className="imagery-label">
-                {activeImageTab === "before" ? "Before – pre-disaster" : "After – post-disaster"}
+                {activeImageTab === "before"
+                  ? "Before – pre-disaster"
+                  : "After – post-disaster"}
               </div>
             </div>
             <div className="imagery-details">
@@ -338,15 +327,18 @@ function App() {
                 <div className="imagery-meta-title">Selected property</div>
                 <div className="imagery-meta-damage">
                   Predicted damage:{" "}
-                  <span className={`damage-tag ${selectedProperty.damageLevel}`}>
+                  <span
+                    className={`damage-tag ${selectedProperty.damageLevel}`}
+                  >
                     {selectedProperty.damageLevel === "noDamage" && "No Damage"}
-                    {selectedProperty.damageLevel === "minorDamage" && "Minor Damage"}
-                    {selectedProperty.damageLevel === "severeDamage" && "Severe Damage"}
+                    {selectedProperty.damageLevel === "minorDamage" &&
+                      "Minor Damage"}
+                    {selectedProperty.damageLevel === "severeDamage" &&
+                      "Severe Damage"}
                   </span>
                 </div>
               </div>
             </div>
-      
           </section>
 
           <section className="panel legend-panel">
@@ -390,13 +382,18 @@ function App() {
             <div className="summary-grid">
               <div className="summary-card severe">
                 <div className="summary-num">
-                  {(summaryData.prediction_counts["destroyed"] + summaryData.prediction_counts["major-damage"]).toLocaleString()}
+                  {(
+                    summaryData.prediction_counts["destroyed"] +
+                    summaryData.prediction_counts["major-damage"]
+                  ).toLocaleString()}
                 </div>
                 <div className="summary-label">Severe</div>
               </div>
               <div className="summary-card minor">
                 <div className="summary-num">
-                  {summaryData.prediction_counts["minor-damage"].toLocaleString()}
+                  {summaryData.prediction_counts[
+                    "minor-damage"
+                  ].toLocaleString()}
                 </div>
                 <div className="summary-label">Minor</div>
               </div>
@@ -416,8 +413,6 @@ function App() {
           </section>
         </section>
 
-        
-
         <section className="right-column">
           <section className="panel map-panel">
             <div className="panel-header">
@@ -425,31 +420,48 @@ function App() {
             </div>
             <div className="map-container">
               <div className="map-toolbar">
-                <button className="map-button" type="button" onClick={() => setMapZoom(z => Math.min(z + 0.2, 3))}>
+                <button
+                  className="map-button"
+                  type="button"
+                  onClick={() => setMapZoom((z) => Math.min(z + 0.2, 3))}
+                >
                   +
                 </button>
-                <button className="map-button" type="button" onClick={() => setMapZoom(z => Math.max(z - 0.2, 0.5))}>
+                <button
+                  className="map-button"
+                  type="button"
+                  onClick={() => setMapZoom((z) => Math.max(z - 0.2, 0.5))}
+                >
                   −
                 </button>
               </div>
               <div
                 className="map-placeholder"
-                style={{ overflow: "hidden", position: "relative", cursor: isDragging ? "grabbing" : "grab" }}
+                style={{
+                  overflow: "hidden",
+                  position: "relative",
+                  cursor: isDragging ? "grabbing" : "grab",
+                }}
                 onMouseDown={(e) => {
                   setIsDragging(true);
                   setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
                 }}
                 onMouseMove={(e) => {
                   if (!isDragging) return;
-                  setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+                  setPan({
+                    x: e.clientX - dragStart.x,
+                    y: e.clientY - dragStart.y,
+                  });
                 }}
                 onMouseUp={() => setIsDragging(false)}
                 onMouseLeave={() => setIsDragging(false)}
               >
                 <img
-                  src={activeImageTab === "before"
-                    ? "/santa-rosa-wildfire_00000000_pre_disaster.png"
-                    : "/santa-rosa-wildfire_00000000_post_disaster.png"}
+                  src={
+                    activeImageTab === "before"
+                      ? "/santa-rosa-wildfire_00000000_pre_disaster.png"
+                      : "/santa-rosa-wildfire_00000000_post_disaster.png"
+                  }
                   alt="Satellite view"
                   draggable={false}
                   style={{
@@ -484,8 +496,10 @@ function App() {
                 >
                   {boundingBoxes
                     .filter((box) => {
-                      if (box.subtype === "no-damage") return damageFilter.noDamage;
-                      if (box.subtype === "minor-damage") return damageFilter.minorDamage;
+                      if (box.subtype === "no-damage")
+                        return damageFilter.noDamage;
+                      if (box.subtype === "minor-damage")
+                        return damageFilter.minorDamage;
                       return damageFilter.severeDamage;
                     })
                     .map(({ building_id, bbox }) => {
@@ -551,7 +565,8 @@ function App() {
               <h2>VLM Evaluation</h2>
             </div>
             <p className="vlm-demo-copy">
-              Upload a pre-disaster and post-disaster image pair to evaluate damage level.
+              Upload a pre-disaster and post-disaster image pair to evaluate
+              damage level.
             </p>
             <form className="vlm-demo-form" onSubmit={handleVlmDemoSubmit}>
               <label className="vlm-demo-field">
@@ -599,7 +614,9 @@ function App() {
                 </div>
                 <div className="vlm-demo-reasoning">
                   <span className="vlm-demo-label">Reasoning</span>
-                  <p>{demoResult.model.reasoning ?? "No reasoning returned."}</p>
+                  <p>
+                    {demoResult.model.reasoning ?? "No reasoning returned."}
+                  </p>
                 </div>
               </div>
             ) : null}
@@ -616,7 +633,9 @@ function App() {
                 </strong>
               </div>
               <div className="evaluation-metric-card">
-                <span className="evaluation-metric-label">Correct Predictions</span>
+                <span className="evaluation-metric-label">
+                  Correct Predictions
+                </span>
                 <strong className="evaluation-metric-value">
                   {summaryData.matched.toLocaleString()}
                 </strong>
@@ -629,7 +648,9 @@ function App() {
               </div>
               <div className="evaluation-metric-card">
                 <span className="evaluation-metric-label">Match Rate</span>
-                <strong className="evaluation-metric-value">{evaluatedPct}%</strong>
+                <strong className="evaluation-metric-value">
+                  {evaluatedPct}%
+                </strong>
               </div>
             </div>
 
@@ -677,7 +698,9 @@ function App() {
                     <tr key={row.groundTruth}>
                       <th>{row.groundTruth}</th>
                       {row.predictions.map((value, index) => (
-                        <td key={`${row.groundTruth}-${EVALUATION_LABELS[index]}`}>
+                        <td
+                          key={`${row.groundTruth}-${EVALUATION_LABELS[index]}`}
+                        >
                           {value.toLocaleString()}
                         </td>
                       ))}
@@ -699,70 +722,8 @@ function App() {
               </ul>
             </div>
           </section>
-          <section className="chat-container">
-            <div className="chat-header">
-              <span className="chat-title">AI Assistant</span>
-            </div>
-            <div className="chat-messages">
-              {chatMessages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`message-wrapper ${message.sender === "user" ? "user-wrapper" : "assistant-wrapper"}`}
-                >
-                  {/* Only show the AI icon for assistant messages */}
-                  {message.sender === "assistant" && (
-                    <div className="assistant-icon" title="AI Assistant">AI</div>
-                  )}
-                  
-                  <div className={`chat-bubble ${message.sender}`}>
-                    {message.text}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="chat-input-area">
-              {/* Refined Quick Actions to help with Capstone testing */}
-              <div className="quick-actions">
-                <button type="button" onClick={() => setChatInput("Analyze severe damage areas")}>
-                  Analyze Severe Damage
-                </button>
-                <button type="button" onClick={() => setChatInput("Show overall building damage")}>
-                  Show Overall Building Damage
-                </button>
-                <button type="button" onClick={() => setChatInput("Number of buildings affected")}>
-                  Show Number of Buildings Affected
-                </button>
-              </div>
-
-              <div className="chat-input-row">
-                <input
-                  className="chat-input"
-                  type="text"
-                  value={chatInput}
-                  onChange={(event) => setChatInput(event.target.value)}
-                  placeholder="Ask about damage patterns..."
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      handleSendChat();
-                    }
-                  }}
-                />
-                <button
-                  className="chat-send-button"
-                  type="button"
-                  onClick={handleSendChat}
-                >
-                  Send
-                </button>
-              </div>
-            </div>
-          </section>
         </section>
       </main>
-
-    
     </div>
   );
 }

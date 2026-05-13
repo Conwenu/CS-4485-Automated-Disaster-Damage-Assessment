@@ -7,6 +7,7 @@ so downstream code can trust every field's type.
 Field order matters: `reasoning` appears first so the model is encouraged
 to think step-by-step before committing to an intent.
 """
+
 from typing import List, Optional, Literal
 from pydantic import BaseModel, Field
 from app.models.enums import ChatIntent

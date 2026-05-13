@@ -11,10 +11,11 @@ This catches two distinct failure modes:
     (e.g., "Tubbs Fire", "weighted F1", "Coffey Park", "PDA")
   - Vector search wins on paraphrasing and conceptual queries
 """
+
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
@@ -49,20 +50,23 @@ def load_bm25(chunks_json: Path, k: int = 6) -> BM25Retriever:
 def reciprocal_rank_fusion(
     rankings: List[List[Document]],
     k: int = RRF_K,
+    weights: Optional[List[float]] = None,
 ) -> List[Document]:
-    """Merge ranked lists from multiple retrievers via RRF.
+    """Merge ranked lists via weighted RRF.
 
-    Documents are deduplicated by their (source, page, original_text) tuple
-    since LangChain doesn't guarantee stable IDs across retrievers.
+    weights: per-retriever multiplier. Default 1.0 for all.
+    e.g. weights=[1.0, 1.5] boosts BM25 relative to vector.
     """
+    if weights is None:
+        weights = [1.0] * len(rankings)
+
     scores: Dict[Tuple, float] = {}
     docs_by_key: Dict[Tuple, Document] = {}
 
-    for ranking in rankings:
+    for ranking, weight in zip(rankings, weights):
         for rank, doc in enumerate(ranking, start=1):
             key = _doc_key(doc)
-            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
-            # Keep the first seen Document instance for this key
+            scores[key] = scores.get(key, 0.0) + weight * (1.0 / (k + rank))
             docs_by_key.setdefault(key, doc)
 
     fused = sorted(scores.items(), key=lambda x: x[1], reverse=True)

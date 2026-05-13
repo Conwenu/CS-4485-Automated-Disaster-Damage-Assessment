@@ -180,9 +180,9 @@ class QueryEngine:
         threshold: Optional[float] = None,
     ) -> Dict[str, Any]:
         confs = [
-            (r.get("model") or {}).get("confidence")
+            c
             for r in records
-            if (r.get("model") or {}).get("confidence") is not None
+            if (c := (r.get("model") or {}).get("confidence")) is not None
         ]
         if threshold is not None:
             confs = [c for c in confs if c >= threshold]

@@ -14,7 +14,7 @@ chat = None
 query = None
 
 try:
-    from app.api.endpoints import chat, query
+    from app.api.endpoints import query
 except ModuleNotFoundError:
     # Keep the VLM/backend app bootable even when optional chatbot deps
     # are not installed on a presentation machine.

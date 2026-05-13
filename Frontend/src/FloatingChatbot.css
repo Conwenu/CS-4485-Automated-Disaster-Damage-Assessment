@@ -1,0 +1,1296 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..700,0..100&family=Geist:wght@300..700&family=Geist+Mono:wght@400;500&display=swap");
+
+.fc-fab,
+.fc-panel,
+.fc-backdrop {
+  --fc-bg: #fafafb;
+  --fc-surface: #ffffff;
+  --fc-surface-2: #f4f4f6;
+  --fc-border: #eaeaef;
+  --fc-border-strong: #d4d4da;
+  --fc-text: #0a0a0d;
+  --fc-text-2: #4a4a54;
+  --fc-text-muted: #8b8b95;
+  --fc-accent: #2155e5;
+  --fc-accent-2: #1840b8;
+  --fc-accent-soft: #e7edfc;
+  --fc-accent-ring: rgba(33, 85, 229, 0.13);
+  --fc-user-bubble: #0a0a0d;
+  --fc-user-fg: #ffffff;
+  --fc-shadow: 0 1px 2px rgba(15, 15, 20, 0.04),
+    0 2px 8px rgba(15, 15, 20, 0.04);
+  --fc-shadow-lg: 0 12px 40px rgba(15, 15, 20, 0.16),
+    0 2px 8px rgba(15, 15, 20, 0.06);
+  --fc-error: #dc2626;
+  --fc-error-soft: #fee7e6;
+
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.fc-fab {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 20px 13px 16px;
+  background: var(--fc-accent);
+  color: var(--fc-user-fg);
+  border: none;
+  border-radius: 999px;
+  font-family: "Geist", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  box-shadow: var(--fc-shadow-lg);
+  transition: transform 0.22s ease, box-shadow 0.22s ease,
+    background 0.15s ease, opacity 0.22s ease;
+}
+
+.fc-fab:hover {
+  background: var(--fc-accent-2);
+  transform: translateY(-2px);
+  box-shadow: 0 16px 48px rgba(15, 15, 20, 0.22),
+    0 4px 14px rgba(15, 15, 20, 0.08);
+}
+
+.fc-fab:active {
+  transform: translateY(-1px) scale(0.98);
+}
+
+.fc-fab.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px) scale(0.94);
+}
+
+.fc-fab-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.fc-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 13, 0.28);
+  z-index: 9998;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.fc-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+
+.fc-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 480px;
+  max-width: 100vw;
+  background: var(--fc-bg);
+  border-left: 1px solid var(--fc-border);
+  box-shadow: -20px 0 60px rgba(15, 15, 20, 0.12);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+  overflow: hidden;
+  color: var(--fc-text);
+  letter-spacing: -0.005em;
+  font-size: 14px;
+  line-height: 1.5;
+  /* Isolate compositing — keeps panel effects from forcing repaints in the host app */
+  contain: layout style;
+}
+
+.fc-panel.open {
+  transform: translateX(0);
+}
+
+.fc-panel::after {
+  content: "";
+  position: absolute;
+  top: -120px;
+  right: -120px;
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(
+    circle,
+    var(--fc-accent-soft) 0%,
+    transparent 65%
+  );
+  pointer-events: none;
+  opacity: 0.6;
+  z-index: 0;
+}
+
+.fc-topbar {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--fc-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--fc-surface);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 5;
+}
+
+.fc-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.fc-brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--fc-accent);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.fc-brand-mark::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    transparent 50%
+  );
+}
+
+.fc-brand-mark svg {
+  position: relative;
+  z-index: 1;
+}
+
+.fc-brand-name {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 500;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  color: var(--fc-text);
+  font-variation-settings: "SOFT" 50, "opsz" 48;
+}
+
+.fc-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.fc-clear {
+  background: var(--fc-surface-2);
+  border: 1px solid var(--fc-border);
+  border-radius: 8px;
+  height: 30px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--fc-text-2);
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transition: all 0.15s ease;
+}
+
+.fc-clear svg {
+  opacity: 0.7;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.fc-clear:hover {
+  color: var(--fc-text);
+  border-color: var(--fc-border-strong);
+  background: var(--fc-surface);
+}
+
+.fc-clear:hover svg {
+  opacity: 1;
+}
+
+.fc-clear:active {
+  transform: scale(0.97);
+}
+
+.fc-close {
+  background: var(--fc-surface-2);
+  border: 1px solid var(--fc-border);
+  border-radius: 8px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--fc-text-2);
+  transition: all 0.15s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.fc-close:hover {
+  border-color: var(--fc-border-strong);
+  color: var(--fc-text);
+  background: var(--fc-surface);
+}
+
+.fc-chat {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 28px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  scroll-behavior: smooth;
+  position: relative;
+  z-index: 1;
+  scrollbar-gutter: stable;
+
+  transform: translateZ(0);
+  will-change: scroll-position;
+  contain: layout paint;
+}
+
+.fc-chat::-webkit-scrollbar {
+  width: 8px;
+}
+.fc-chat::-webkit-scrollbar-track {
+  background: transparent;
+}
+.fc-chat::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.fc-chat:hover::-webkit-scrollbar-thumb {
+  background: var(--fc-border-strong);
+  background-clip: padding-box;
+}
+.fc-chat {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.fc-chat:hover {
+  scrollbar-color: var(--fc-border-strong) transparent;
+}
+
+.fc-empty {
+  margin-top: 8px;
+  animation: fc-fadeIn 0.45s ease;
+}
+
+@keyframes fc-fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fc-empty-eyebrow {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--fc-accent);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fc-empty-eyebrow::before {
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: var(--fc-accent);
+}
+
+.fc-empty-headline {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 30px;
+  line-height: 1.08;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  color: var(--fc-text);
+  margin: 0 0 14px;
+  font-variation-settings: "SOFT" 80, "opsz" 144;
+}
+
+.fc-empty-headline em {
+  font-style: italic;
+  color: var(--fc-accent);
+  font-variation-settings: "SOFT" 100, "opsz" 144;
+}
+
+.fc-empty-sub {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fc-text-2);
+  margin: 0 0 26px;
+}
+
+.fc-starter-label {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--fc-text-muted);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fc-starter-label::before {
+  content: "";
+  width: 12px;
+  height: 1px;
+  background: var(--fc-border-strong);
+}
+
+.fc-starter-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--fc-border);
+}
+
+.fc-starter-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fc-starter-card {
+  padding: 14px 16px;
+  background: var(--fc-surface);
+  border: 1px solid var(--fc-border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  position: relative;
+}
+
+.fc-starter-card::after {
+  content: "→";
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  font-size: 14px;
+  color: var(--fc-text-muted);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.18s, transform 0.18s, color 0.18s;
+}
+
+.fc-starter-card:hover {
+  border-color: var(--fc-border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--fc-shadow);
+}
+
+.fc-starter-card:hover::after {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--fc-accent);
+}
+
+.fc-starter-card-label {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fc-accent);
+  margin-bottom: 8px;
+}
+
+.fc-starter-card-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fc-text);
+  font-weight: 450;
+  padding-right: 22px;
+}
+
+.fc-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fc-fadeIn 0.32s ease;
+  min-width: 0;
+}
+
+.fc-msg.user {
+  align-items: flex-end;
+}
+
+.fc-msg-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fc-text-muted);
+  width: 100%;
+}
+
+.fc-msg.user .fc-msg-head {
+  flex-direction: row-reverse;
+}
+
+.fc-msg-head-role {
+  color: var(--fc-text-2);
+  font-weight: 500;
+}
+
+.fc-msg.user .fc-msg-head-role {
+  color: var(--fc-accent);
+}
+
+.fc-msg.error .fc-msg-head-role {
+  color: var(--fc-error);
+}
+
+.fc-msg-head-index {
+  color: var(--fc-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-msg-head-time {
+  font-size: 9.5px;
+}
+
+.fc-msg-head-line {
+  flex: 1;
+  height: 1px;
+  background: var(--fc-border);
+}
+
+.fc-bubble {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--fc-text);
+  letter-spacing: -0.005em;
+  padding-left: 2px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.fc-msg.user .fc-bubble {
+  display: inline-block;
+  max-width: 86%;
+  background: var(--fc-user-bubble);
+  color: var(--fc-user-fg);
+  padding: 11px 16px;
+  border-radius: 14px 14px 4px 14px;
+  font-weight: 450;
+  text-align: left;
+  padding-left: 16px;
+}
+
+.fc-msg.error .fc-bubble {
+  background: var(--fc-error-soft);
+  color: var(--fc-error);
+  padding: 13px 16px;
+  border-radius: 4px 14px 14px 14px;
+  border-left: 3px solid var(--fc-error);
+  display: inline-block;
+  max-width: 86%;
+}
+
+.fc-bubble > *:first-child {
+  margin-top: 0 !important;
+}
+.fc-bubble > *:last-child {
+  margin-bottom: 0 !important;
+}
+
+.fc-bubble p {
+  margin: 0.55em 0;
+}
+
+.fc-bubble h1,
+.fc-bubble h2,
+.fc-bubble h3,
+.fc-bubble h4,
+.fc-bubble h5,
+.fc-bubble h6 {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--fc-text);
+  font-variation-settings: "SOFT" 50, "opsz" 48;
+}
+
+.fc-bubble h1 {
+  font-size: 1.55em;
+  margin: 0.7em 0 0.4em;
+}
+.fc-bubble h2 {
+  font-size: 1.35em;
+  margin: 0.85em 0 0.4em;
+}
+.fc-bubble h3 {
+  font-size: 1.18em;
+  margin: 0.85em 0 0.35em;
+  font-weight: 600;
+}
+.fc-bubble h4 {
+  font-size: 1.06em;
+  margin: 0.85em 0 0.35em;
+  font-weight: 600;
+}
+.fc-bubble h5 {
+  font-size: 1em;
+  margin: 0.85em 0 0.3em;
+  font-weight: 600;
+}
+.fc-bubble h6 {
+  font-size: 0.85em;
+  margin: 0.85em 0 0.3em;
+  font-weight: 600;
+  font-family: "Geist Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fc-text-2);
+}
+
+.fc-bubble ul,
+.fc-bubble ol {
+  margin: 0.55em 0;
+  padding-left: 1.45em;
+}
+
+.fc-bubble li {
+  margin: 0.25em 0;
+  line-height: 1.55;
+}
+
+.fc-bubble li > p {
+  margin: 0.2em 0;
+}
+
+.fc-bubble ul > li::marker {
+  color: var(--fc-accent);
+}
+
+.fc-bubble ol > li::marker {
+  color: var(--fc-text-muted);
+  font-family: "Geist Mono", monospace;
+  font-size: 0.9em;
+}
+
+.fc-bubble blockquote {
+  margin: 0.75em 0;
+  padding: 0.35em 0 0.35em 1em;
+  border-left: 3px solid var(--fc-accent);
+  background: var(--fc-accent-soft);
+  border-radius: 0 6px 6px 0;
+  color: var(--fc-text-2);
+  font-style: italic;
+}
+
+.fc-bubble blockquote p {
+  margin: 0.3em 0;
+}
+
+.fc-bubble a {
+  color: var(--fc-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2.5px;
+  text-decoration-color: color-mix(in srgb, var(--fc-accent) 40%, transparent);
+  transition: text-decoration-color 0.15s ease;
+  overflow-wrap: anywhere;
+}
+
+.fc-bubble a:hover {
+  text-decoration-color: var(--fc-accent);
+}
+
+.fc-bubble code {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.87em;
+  background: var(--fc-surface-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--fc-border);
+  color: var(--fc-text);
+}
+
+.fc-bubble pre {
+  margin: 0.75em 0;
+  background: var(--fc-surface-2);
+  border: 1px solid var(--fc-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.55;
+  max-width: 100%;
+}
+
+.fc-bubble pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 1em;
+  white-space: pre;
+  color: var(--fc-text);
+  display: block;
+  min-width: 0;
+}
+
+.fc-bubble pre::-webkit-scrollbar {
+  height: 8px;
+}
+.fc-bubble pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+.fc-bubble pre::-webkit-scrollbar-thumb {
+  background: var(--fc-border-strong);
+  border-radius: 4px;
+}
+
+.fc-bubble hr {
+  border: none;
+  border-top: 1px dashed var(--fc-border-strong);
+  margin: 1em 0;
+}
+
+.fc-bubble strong {
+  font-weight: 600;
+  color: var(--fc-text);
+}
+
+.fc-bubble em {
+  font-style: italic;
+}
+
+.fc-bubble table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  font-size: 0.9em;
+  width: 100%;
+  border: 1px solid var(--fc-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.fc-bubble th,
+.fc-bubble td {
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--fc-border);
+  text-align: left;
+}
+
+.fc-bubble th {
+  background: var(--fc-surface-2);
+  font-weight: 600;
+  font-family: "Geist Mono", monospace;
+  font-size: 0.88em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fc-text-2);
+}
+
+.fc-bubble tr:last-child td {
+  border-bottom: none;
+}
+
+.fc-msg.user .fc-bubble a {
+  color: var(--fc-user-fg);
+  text-decoration-color: color-mix(in srgb, var(--fc-user-fg) 60%, transparent);
+}
+.fc-msg.user .fc-bubble a:hover {
+  text-decoration-color: var(--fc-user-fg);
+}
+.fc-msg.user .fc-bubble code {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--fc-user-fg);
+}
+.fc-msg.user .fc-bubble pre {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.fc-msg.user .fc-bubble pre code {
+  color: var(--fc-user-fg);
+}
+.fc-msg.user .fc-bubble blockquote {
+  background: rgba(255, 255, 255, 0.08);
+  border-left-color: var(--fc-user-fg);
+  color: var(--fc-user-fg);
+}
+.fc-msg.user .fc-bubble h1,
+.fc-msg.user .fc-bubble h2,
+.fc-msg.user .fc-bubble h3,
+.fc-msg.user .fc-bubble h4,
+.fc-msg.user .fc-bubble h5,
+.fc-msg.user .fc-bubble h6 {
+  color: var(--fc-user-fg);
+}
+.fc-msg.user .fc-bubble strong {
+  color: var(--fc-user-fg);
+}
+.fc-msg.user .fc-bubble hr {
+  border-top-color: rgba(255, 255, 255, 0.25);
+}
+.fc-msg.user .fc-bubble ul > li::marker,
+.fc-msg.user .fc-bubble ol > li::marker {
+  color: var(--fc-user-fg);
+  opacity: 0.7;
+}
+
+.fc-msg-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.fc-msg.assistant:hover .fc-msg-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.fc-action-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: "Geist Mono", monospace;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fc-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fc-action-btn:hover {
+  background: var(--fc-surface-2);
+  border-color: var(--fc-border);
+  color: var(--fc-text-2);
+}
+
+.fc-action-btn.copied {
+  color: #10b981;
+  border-color: #10b981;
+}
+
+.fc-suggestions {
+  margin-top: 18px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-suggestions-label {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--fc-text-muted);
+  padding: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fc-suggestions-label::before {
+  content: "";
+  width: 16px;
+  height: 1px;
+  background: var(--fc-accent);
+}
+
+.fc-suggestions-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--fc-border);
+}
+
+.fc-suggestions-label-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--fc-accent);
+}
+
+.fc-chip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 11px 12px 11px 4px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--fc-border);
+  text-align: left;
+  cursor: pointer;
+  color: var(--fc-text-2);
+  font-size: 13px;
+  font-family: inherit;
+  font-weight: 450;
+  line-height: 1.4;
+  position: relative;
+  transition: color 0.2s ease,
+    padding-left 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  overflow: hidden;
+  isolation: isolate;
+  animation: fc-chipIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+
+.fc-suggestions .fc-chip:nth-child(2) {
+  animation-delay: 0s;
+}
+.fc-suggestions .fc-chip:nth-child(3) {
+  animation-delay: 0.06s;
+}
+.fc-suggestions .fc-chip:nth-child(4) {
+  animation-delay: 0.12s;
+}
+.fc-suggestions .fc-chip:nth-child(5) {
+  animation-delay: 0.18s;
+}
+.fc-suggestions .fc-chip:nth-child(6) {
+  animation-delay: 0.24s;
+}
+.fc-suggestions .fc-chip:nth-child(7) {
+  animation-delay: 0.3s;
+}
+
+@keyframes fc-chipIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.fc-chip:last-child {
+  border-bottom: none;
+}
+
+.fc-chip-num {
+  font-family: "Geist Mono", monospace;
+  font-size: 10px;
+  color: var(--fc-text-muted);
+  min-width: 22px;
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.2s;
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.fc-chip-num::before {
+  content: attr(data-num);
+}
+
+.fc-chip-fill {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    var(--fc-accent-soft) 0%,
+    color-mix(in srgb, var(--fc-accent-soft) 50%, transparent) 60%,
+    transparent 100%
+  );
+  opacity: 0;
+  transform: translateX(-16px);
+  transition: opacity 0.28s ease,
+    transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.fc-chip::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%) scaleY(0);
+  width: 2px;
+  height: 60%;
+  background: var(--fc-accent);
+  transform-origin: center;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  z-index: 2;
+}
+
+.fc-chip-text {
+  flex: 1;
+  position: relative;
+  z-index: 2;
+  transition: color 0.2s;
+}
+
+.fc-chip-arrow {
+  font-family: "Geist Mono", monospace;
+  color: var(--fc-text-muted);
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 0.2s ease,
+    transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), color 0.2s ease;
+  position: relative;
+  z-index: 2;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.fc-chip:hover {
+  color: var(--fc-text);
+  padding-left: 10px;
+}
+
+.fc-chip:hover .fc-chip-num {
+  color: var(--fc-accent);
+}
+
+.fc-chip:hover .fc-chip-fill {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.fc-chip:hover::before {
+  transform: translateY(-50%) scaleY(1);
+}
+
+.fc-chip:hover .fc-chip-arrow {
+  opacity: 1;
+  transform: translateX(0);
+  color: var(--fc-accent);
+}
+
+.fc-chip:active {
+  transform: scale(0.995);
+}
+
+.fc-chip:focus-visible {
+  outline: none;
+  background: var(--fc-accent-soft);
+}
+
+.fc-chip:focus-visible::before {
+  transform: translateY(-50%) scaleY(1);
+}
+
+.fc-loading-dots {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fc-text-muted);
+  font-size: 13px;
+}
+
+.fc-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.fc-dots span {
+  width: 6px;
+  height: 6px;
+  background: var(--fc-accent);
+  border-radius: 50%;
+  animation: fc-bounce 1.3s infinite ease-in-out both;
+}
+
+.fc-dots span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+.fc-dots span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes fc-bounce {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.4);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.fc-loading-label {
+  font-family: "Geist Mono", monospace;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.fc-input-area {
+  padding: 12px 20px 18px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+}
+
+.fc-input-frame {
+  background: var(--fc-surface);
+  border: 1.5px solid var(--fc-border);
+  border-radius: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.fc-input-frame::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: 30%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--fc-accent),
+    transparent
+  );
+  transform: translateX(-100%);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.fc-input-frame.sending::after {
+  opacity: 1;
+  animation: fc-slide 1.4s linear infinite;
+}
+
+@keyframes fc-slide {
+  to {
+    transform: translateX(400%);
+  }
+}
+
+.fc-input-frame:focus-within {
+  border-color: var(--fc-accent);
+  box-shadow: 0 0 0 4px var(--fc-accent-ring);
+}
+
+.fc-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 8px 8px 8px 16px;
+}
+
+.fc-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  resize: none;
+  outline: none;
+  padding: 8px 0 4px;
+  max-height: 200px;
+  letter-spacing: -0.005em;
+  color: var(--fc-text);
+  min-width: 0;
+}
+
+.fc-input::placeholder {
+  color: var(--fc-text-muted);
+}
+
+.fc-input:disabled {
+  opacity: 0.5;
+}
+
+.fc-send-btn {
+  background: var(--fc-accent);
+  border: none;
+  cursor: pointer;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  color: var(--fc-user-fg);
+  padding: 0;
+}
+
+.fc-send-btn svg {
+  transition: transform 0.2s;
+}
+
+.fc-send-btn:hover:not(:disabled) {
+  background: var(--fc-accent-2);
+}
+
+.fc-send-btn:hover:not(:disabled) svg {
+  transform: translate(1px, -1px);
+}
+
+.fc-send-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.fc-send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.fc-input-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  padding: 0 12px 8px;
+  font-size: 10.5px;
+  color: var(--fc-text-muted);
+}
+
+.fc-kbd {
+  font-family: "Geist Mono", monospace;
+  font-size: 9.5px;
+  padding: 2px 5px;
+  background: var(--fc-surface-2);
+  border: 1px solid var(--fc-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  color: var(--fc-text-2);
+  line-height: 1;
+}
+
+@media (max-width: 640px) {
+  .fc-panel {
+    width: 100vw;
+  }
+  .fc-fab {
+    bottom: 20px;
+    right: 20px;
+    width: 54px;
+    height: 54px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  .fc-fab-label {
+    display: none;
+  }
+  .fc-chat {
+    padding: 22px 18px 16px;
+    gap: 22px;
+  }
+  .fc-input-area {
+    padding: 10px 16px 14px;
+  }
+  .fc-input-meta {
+    display: none;
+  }
+  .fc-topbar {
+    padding: 12px 16px;
+  }
+  .fc-clear span {
+    display: none;
+  }
+  .fc-clear {
+    width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+  .fc-empty-headline {
+    font-size: 26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-fab,
+  .fc-panel,
+  .fc-backdrop,
+  .fc-chip,
+  .fc-msg,
+  .fc-empty,
+  .fc-dots span {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- Streaming blur-in effect ---------- */
+
+.fc-bubble .fc-stream-char {
+  display: inline-block;
+  animation: fc-blur-in 320ms cubic-bezier(0.2, 0.65, 0.4, 1) forwards;
+  filter: blur(8px);
+  opacity: 0;
+  transform: translateY(2px);
+}
+
+@keyframes fc-blur-in {
+  0% {
+    filter: blur(8px);
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  100% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Optional: preserve whitespace so spaces between word-spans stay visible */
+.fc-bubble .fc-stream-char[data-space="true"] {
+  white-space: pre;
+}
