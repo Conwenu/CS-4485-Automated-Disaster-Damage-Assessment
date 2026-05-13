@@ -159,6 +159,9 @@ class KnowledgeRetriever:
 
     def _search(self, query: str) -> List[Document]:
         # Vector search (semantic)
+        if self._vector_store is None:
+            return []
+
         vector_hits: List[Document] = []
         try:
             vector_hits = self._vector_store.max_marginal_relevance_search(
@@ -213,6 +216,8 @@ class KnowledgeRetriever:
 
     def _generate(self, query: str, docs: List[Document]) -> Optional[str]:
         # print(f"_generate: called with {len(docs)} docs for query={query!r}")
+        if self._generator is None:
+            return None
         for d in docs:
             original = d.metadata.get("original_text")
             if original:
@@ -258,7 +263,7 @@ class KnowledgeRetriever:
             "not mentioned",
         )
         if any(m in answer.lower() for m in refusal_markers):
-            print(f"_generate: REFUSED — answer contains refusal marker")
+            print("_generate: REFUSED — answer contains refusal marker")
             return None
 
         sources = collect_citations(docs)

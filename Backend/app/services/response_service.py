@@ -223,8 +223,7 @@ class ResponseService:
             return f"No misclassifications found in {self._city_label(d)}."
 
         header = (
-            f"The model made {count:,} incorrect predictions "
-            f"in {self._city_label(d)}."
+            f"The model made {count:,} incorrect predictions in {self._city_label(d)}."
         )
         examples = (d.get("examples") or [])[:5]
         if examples:

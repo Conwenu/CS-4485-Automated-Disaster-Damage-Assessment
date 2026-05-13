@@ -174,7 +174,6 @@ class SuggestionGenerator:
         return suggestions
 
     def _for_highest_confidence(self, data: Dict[str, Any]) -> List[str]:
-        rec = data.get("record") or {}
         return [
             "Explain why this was classified that way",
             "Show low-confidence predictions",
@@ -182,7 +181,6 @@ class SuggestionGenerator:
         ]
 
     def _for_random_building(self, data: Dict[str, Any]) -> List[str]:
-        rec = data.get("record") or {}
         return [
             "Explain why this was classified that way",
             "Show another random building",

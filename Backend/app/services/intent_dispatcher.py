@@ -40,7 +40,7 @@ class IntentDispatcher:
         }
 
     def dispatch(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        intent = parsed.get("intent")
+        intent = parsed.get("intent") or "OUT_OF_SCOPE"
 
         err = self._validate(intent, parsed)
         if err:

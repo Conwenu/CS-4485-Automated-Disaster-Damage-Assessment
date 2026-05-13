@@ -1,4 +1,4 @@
-﻿import base64
+import base64
 import json
 import os
 import random
@@ -54,12 +54,22 @@ def extract_critical_regions_from_labels(labels_xy, max_regions=MAX_REGIONS_FOR_
         height = max_y - min_y
         area = max(0.0, width * height)
 
-        regions.append({
-            "id": f"region_{i + 1}",
-            "bbox": [round(min_x, 2), round(min_y, 2), round(max_x, 2), round(max_y, 2)],
-            "center": [round((min_x + max_x) / 2.0, 2), round((min_y + max_y) / 2.0, 2)],
-            "bbox_area": round(area, 2),
-        })
+        regions.append(
+            {
+                "id": f"region_{i + 1}",
+                "bbox": [
+                    round(min_x, 2),
+                    round(min_y, 2),
+                    round(max_x, 2),
+                    round(max_y, 2),
+                ],
+                "center": [
+                    round((min_x + max_x) / 2.0, 2),
+                    round((min_y + max_y) / 2.0, 2),
+                ],
+                "bbox_area": round(area, 2),
+            }
+        )
 
     regions.sort(key=lambda item: item["bbox_area"], reverse=True)
     return regions[:max_regions]
@@ -209,7 +219,9 @@ def assess_damage_images_only(pre_image_path, post_image_path):
     }
 
 
-def assess_damage_with_retry(pre_image_path, post_image_path, label_path, max_attempts=4, base_delay_seconds=0.5):
+def assess_damage_with_retry(
+    pre_image_path, post_image_path, label_path, max_attempts=4, base_delay_seconds=0.5
+):
     last_error = None
 
     for attempt in range(max_attempts):
@@ -220,7 +232,7 @@ def assess_damage_with_retry(pre_image_path, post_image_path, label_path, max_at
             if attempt == max_attempts - 1:
                 break
 
-            delay = base_delay_seconds * (2 ** attempt)
+            delay = base_delay_seconds * (2**attempt)
             delay += random.uniform(0.0, 0.2)
             print(f"Retry {attempt + 1}/{max_attempts - 1} after error: {error}")
             time.sleep(delay)

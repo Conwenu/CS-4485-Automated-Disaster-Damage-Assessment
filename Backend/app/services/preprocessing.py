@@ -51,7 +51,10 @@ def get_pairs(
         if "pre" not in data or "post" not in data or "labels_data" not in data:
             continue
 
-        with Image.open(data["pre"]) as pre_image, Image.open(data["post"]) as post_image:
+        with (
+            Image.open(data["pre"]) as pre_image,
+            Image.open(data["post"]) as post_image,
+        ):
             for idx, item in enumerate(data["labels_data"]):
                 bounding = create_bounding_box(item["coords"])
                 if bounding is None:

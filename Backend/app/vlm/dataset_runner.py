@@ -79,16 +79,18 @@ def build_evaluation_records(results):
 
         model = item.get("model", {})
         eval_data = item.get("evaluation", {})
-        evaluation.append({
-            "id": item.get("id"),
-            "scene_id": item.get("scene_id"),
-            "city": item.get("city"),
-            "ground_truth": eval_data.get("ground_truth"),
-            "prediction": eval_data.get("prediction"),
-            "match": eval_data.get("match"),
-            "confidence": model.get("confidence"),
-            "reasoning": model.get("reasoning"),
-        })
+        evaluation.append(
+            {
+                "id": item.get("id"),
+                "scene_id": item.get("scene_id"),
+                "city": item.get("city"),
+                "ground_truth": eval_data.get("ground_truth"),
+                "prediction": eval_data.get("prediction"),
+                "match": eval_data.get("match"),
+                "confidence": model.get("confidence"),
+                "reasoning": model.get("reasoning"),
+            }
+        )
 
     return evaluation
 
@@ -117,14 +119,16 @@ def build_summary(evaluation):
             confusion_counts[f"{ground_truth} -> {prediction}"] += 1
 
         if match is False:
-            mismatches.append({
-                "id": item.get("id"),
-                "scene_id": item.get("scene_id"),
-                "ground_truth": ground_truth,
-                "prediction": prediction,
-                "confidence": item.get("confidence"),
-                "reasoning": item.get("reasoning"),
-            })
+            mismatches.append(
+                {
+                    "id": item.get("id"),
+                    "scene_id": item.get("scene_id"),
+                    "ground_truth": ground_truth,
+                    "prediction": prediction,
+                    "confidence": item.get("confidence"),
+                    "reasoning": item.get("reasoning"),
+                }
+            )
 
     accuracy = 0.0
     if total:
@@ -180,7 +184,9 @@ def run_dataset(
         if not pair_id:
             continue
 
-        if progress_every and ((index == 1) or (index % progress_every == 0) or (index == total_selected)):
+        if progress_every and (
+            (index == 1) or (index % progress_every == 0) or (index == total_selected)
+        ):
             print(f"Progress {index}/{total_selected} current={pair_id}")
 
         if pair_id in processed_ids:
@@ -201,28 +207,34 @@ def run_dataset(
                 post_image_path,
                 ground_truth=ground_truth,
             )
-            upsert_result(results, {
-                "id": pair_id,
-                "scene_id": pair.get("scene_id"),
-                "city": pair.get("city"),
-                "status": "ok",
-                "pre_image_path": pre_image_path,
-                "post_image_path": post_image_path,
-                **prediction,
-            })
+            upsert_result(
+                results,
+                {
+                    "id": pair_id,
+                    "scene_id": pair.get("scene_id"),
+                    "city": pair.get("city"),
+                    "status": "ok",
+                    "pre_image_path": pre_image_path,
+                    "post_image_path": post_image_path,
+                    **prediction,
+                },
+            )
             completed_new += 1
         except Exception as error:
             failed += 1
-            upsert_result(results, {
-                "id": pair_id,
-                "scene_id": pair.get("scene_id"),
-                "city": pair.get("city"),
-                "status": "failed",
-                "error": str(error),
-                "pre_image_path": pre_image_path,
-                "post_image_path": post_image_path,
-                "ground_truth": ground_truth,
-            })
+            upsert_result(
+                results,
+                {
+                    "id": pair_id,
+                    "scene_id": pair.get("scene_id"),
+                    "city": pair.get("city"),
+                    "status": "failed",
+                    "error": str(error),
+                    "pre_image_path": pre_image_path,
+                    "post_image_path": post_image_path,
+                    "ground_truth": ground_truth,
+                },
+            )
 
         processed_ids.add(pair_id)
         save_json(results_path, results)
@@ -234,13 +246,16 @@ def run_dataset(
         if pair_id and pair_id in processed_ids:
             continue
 
-        upsert_result(results, {
-            "id": pair_id,
-            "scene_id": pair.get("scene_id"),
-            "status": "invalid_pair",
-            "issues": item.get("issues", []),
-            "pair": pair,
-        })
+        upsert_result(
+            results,
+            {
+                "id": pair_id,
+                "scene_id": pair.get("scene_id"),
+                "status": "invalid_pair",
+                "issues": item.get("issues", []),
+                "pair": pair,
+            },
+        )
 
         if pair_id:
             processed_ids.add(pair_id)

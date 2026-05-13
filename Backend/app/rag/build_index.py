@@ -8,6 +8,7 @@ Run:
     python -m app.rag.build_index
 """
 
+import re
 import json
 import logging
 import shutil
@@ -54,9 +55,6 @@ def load_pdfs(pdf_dir: Path) -> List[Document]:
     return documents
 
 
-import re
-
-
 def chunk_documents(documents: List[Document]) -> List[Document]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
@@ -85,7 +83,7 @@ def _is_citation_noise(text: str) -> bool:
     These chunks contain the right keywords (fire, destroyed, Santa Rosa) but
     no useful prose — they're just footnote lists.
     """
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
     if not lines:
         return True
 
@@ -93,9 +91,9 @@ def _is_citation_noise(text: str) -> bool:
     issn_pattern = re.compile(r"ISSN|ISBN|doi:|arxiv:", re.IGNORECASE)
     citation_pattern = re.compile(r"^\d+\.\s+\w+")  # "39. Lorenz, Julie..."
 
-    url_lines = sum(1 for l in lines if url_pattern.search(l))
-    issn_lines = sum(1 for l in lines if issn_pattern.search(l))
-    citation_lines = sum(1 for l in lines if citation_pattern.match(l))
+    url_lines = sum(1 for line in lines if url_pattern.search(line))
+    issn_lines = sum(1 for line in lines if issn_pattern.search(line))
+    citation_lines = sum(1 for line in lines if citation_pattern.match(line))
 
     # If more than 40% of lines are URLs/citations, drop the chunk
     noise_ratio = (url_lines + issn_lines + citation_lines) / len(lines)

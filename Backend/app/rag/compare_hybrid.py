@@ -14,7 +14,6 @@ from langchain_core.documents import Document
 
 from app.rag.chains import build_generator_chain
 from app.rag.hybrid import load_bm25, reciprocal_rank_fusion
-from app.config import settings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INDEX_DIR = REPO_ROOT / "data" / "chroma_index"

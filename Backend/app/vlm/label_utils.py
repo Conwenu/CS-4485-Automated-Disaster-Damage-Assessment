@@ -1,4 +1,4 @@
-﻿"""Ground-truth and evaluation."""
+"""Ground-truth and evaluation."""
 
 import json
 

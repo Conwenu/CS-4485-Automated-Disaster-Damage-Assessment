@@ -38,10 +38,12 @@ def get_label_data(image_path: str, label_directory: str | None = None):
         wkt = obj.get("wkt", ",")
         coords = wkt.replace("POLYGON ((", "").replace("))", "")
         subtype = obj.get("properties", {}).get("subtype", "unknown")
-        extracted.append({
-            "coords": coords,
-            "subtype": subtype,
-        })
+        extracted.append(
+            {
+                "coords": coords,
+                "subtype": subtype,
+            }
+        )
 
     return extracted
 
@@ -111,7 +113,10 @@ def get_building_pairs(
         if "pre" not in data or "post" not in data or "labels_data" not in data:
             continue
 
-        with Image.open(data["pre"]) as pre_image, Image.open(data["post"]) as post_image:
+        with (
+            Image.open(data["pre"]) as pre_image,
+            Image.open(data["post"]) as post_image,
+        ):
             for idx, item in enumerate(data["labels_data"]):
                 bounding = create_bounding_box(item["coords"])
                 if bounding is None:
@@ -126,13 +131,15 @@ def get_building_pairs(
                 pre_crop.save(pre_crop_path)
                 post_crop.save(post_crop_path)
 
-                valid_pairs.append({
-                    "building_id": f"{pair_id}_bldg{idx}",
-                    "scene_id": pair_id,
-                    "city": data["city"],
-                    "subtype": item["subtype"],
-                    "pre_crop": str(pre_crop_path),
-                    "post_crop": str(post_crop_path),
-                })
+                valid_pairs.append(
+                    {
+                        "building_id": f"{pair_id}_bldg{idx}",
+                        "scene_id": pair_id,
+                        "city": data["city"],
+                        "subtype": item["subtype"],
+                        "pre_crop": str(pre_crop_path),
+                        "post_crop": str(post_crop_path),
+                    }
+                )
 
     return valid_pairs

@@ -6,7 +6,6 @@ from app.config import settings
 
 
 class QueryRewriter:
-
     def __init__(
         self,
         model: Optional[str] = None,

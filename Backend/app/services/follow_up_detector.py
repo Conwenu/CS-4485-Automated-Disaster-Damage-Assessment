@@ -6,7 +6,6 @@ from app.config import settings
 
 
 class FollowUpDetector:
-
     def __init__(
         self,
         model: Optional[str] = None,

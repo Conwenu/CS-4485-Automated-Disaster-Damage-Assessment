@@ -9,7 +9,7 @@ Two chains:
 Both share one ChatGoogleGenerativeAI instance to avoid duplicate auth setup.
 """
 
-from typing import List, Tuple, AsyncGenerator
+from typing import List, AsyncGenerator
 
 from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -205,9 +205,7 @@ async def stream_polished_answer(
         ),
         HumanMessage(
             content=(
-                f"User query: {query}\n\n"
-                f"Base answer:\n{text}\n\n"
-                "Rewritten answer:"
+                f"User query: {query}\n\nBase answer:\n{text}\n\nRewritten answer:"
             )
         ),
     ]

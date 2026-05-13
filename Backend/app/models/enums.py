@@ -1,4 +1,5 @@
 """Enums and shared constants."""
+
 from enum import Enum
 
 

@@ -56,8 +56,14 @@ def call_building_vlm(pre_image_path, post_image_path):
                             "damage_level must be one of: no-damage, minor-damage, major-damage, destroyed."
                         ),
                     },
-                    {"type": "input_image", "image_url": image_to_data_url(pre_image_path)},
-                    {"type": "input_image", "image_url": image_to_data_url(post_image_path)},
+                    {
+                        "type": "input_image",
+                        "image_url": image_to_data_url(pre_image_path),
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": image_to_data_url(post_image_path),
+                    },
                 ],
             }
         ],
@@ -95,20 +101,30 @@ def assess_building_damage(pre_image_path, post_image_path, ground_truth=None):
     }
 
 
-def assess_building_damage_with_retry(pre_image_path, post_image_path, ground_truth=None, max_attempts=4, base_delay_seconds=0.5):
+def assess_building_damage_with_retry(
+    pre_image_path,
+    post_image_path,
+    ground_truth=None,
+    max_attempts=4,
+    base_delay_seconds=0.5,
+):
     last_error = None
 
     for attempt in range(max_attempts):
         try:
-            return assess_building_damage(pre_image_path, post_image_path, ground_truth=ground_truth)
+            return assess_building_damage(
+                pre_image_path, post_image_path, ground_truth=ground_truth
+            )
         except Exception as error:
             last_error = error
             if attempt == max_attempts - 1:
                 break
 
-            delay = base_delay_seconds * (2 ** attempt)
+            delay = base_delay_seconds * (2**attempt)
             delay += random.uniform(0.0, 0.2)
             print(f"Retry {attempt + 1}/{max_attempts - 1} after error: {error}")
             time.sleep(delay)
 
-    raise RuntimeError(f"Building assessment failed after {max_attempts} attempts: {last_error}")
+    raise RuntimeError(
+        f"Building assessment failed after {max_attempts} attempts: {last_error}"
+    )
