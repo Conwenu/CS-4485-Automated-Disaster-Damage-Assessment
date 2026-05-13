@@ -118,15 +118,11 @@
 }
 
 .imagery-panel {
-  flex: 1;
+  flex: none;
 }
 
 .imagery-details {
   margin-top: 0.9rem;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.6rem 0.85rem;
-  align-items: start;
 }
 
 .imagery-pill {

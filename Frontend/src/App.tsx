@@ -323,7 +323,6 @@ function App() {
               </div>
             </div>
             <div className="imagery-details">
-              <div className="imagery-pill"></div>
               <div className="imagery-meta">
                 <div className="imagery-meta-title">Selected property</div>
                 <div className="imagery-meta-damage">
