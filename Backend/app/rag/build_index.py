@@ -7,6 +7,7 @@ retriever to pick up at runtime.
 Run:
     python -m app.rag.build_index
 """
+
 import json
 import logging
 import shutil
@@ -38,9 +39,7 @@ MIN_CHUNK_CHARS = 120
 def load_pdfs(pdf_dir: Path) -> List[Document]:
     pdfs = sorted(pdf_dir.glob("*.pdf"))
     if not pdfs:
-        raise FileNotFoundError(
-            f"No PDFs found in {pdf_dir}. Place PDFs there first."
-        )
+        raise FileNotFoundError(f"No PDFs found in {pdf_dir}. Place PDFs there first.")
 
     documents: List[Document] = []
     for pdf_path in pdfs:
@@ -55,6 +54,9 @@ def load_pdfs(pdf_dir: Path) -> List[Document]:
     return documents
 
 
+import re
+
+
 def chunk_documents(documents: List[Document]) -> List[Document]:
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
@@ -63,7 +65,41 @@ def chunk_documents(documents: List[Document]) -> List[Document]:
         separators=["\n\n", "\n", ". ", " ", ""],
     )
     chunks = splitter.split_documents(documents)
-    return [c for c in chunks if len(c.page_content.strip()) >= MIN_CHUNK_CHARS]
+
+    filtered = []
+    for c in chunks:
+        text = c.page_content.strip()
+        if len(text) < MIN_CHUNK_CHARS:
+            continue
+        if _is_citation_noise(text):
+            continue
+        filtered.append(c)
+
+    return filtered
+
+
+def _is_citation_noise(text: str) -> bool:
+    """Return True for chunks that are mostly citations, URLs, or references.
+
+    Wikipedia PDFs produce heavy reference-list pages that pollute retrieval.
+    These chunks contain the right keywords (fire, destroyed, Santa Rosa) but
+    no useful prose — they're just footnote lists.
+    """
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    if not lines:
+        return True
+
+    url_pattern = re.compile(r"https?://|www\.", re.IGNORECASE)
+    issn_pattern = re.compile(r"ISSN|ISBN|doi:|arxiv:", re.IGNORECASE)
+    citation_pattern = re.compile(r"^\d+\.\s+\w+")  # "39. Lorenz, Julie..."
+
+    url_lines = sum(1 for l in lines if url_pattern.search(l))
+    issn_lines = sum(1 for l in lines if issn_pattern.search(l))
+    citation_lines = sum(1 for l in lines if citation_pattern.match(l))
+
+    # If more than 40% of lines are URLs/citations, drop the chunk
+    noise_ratio = (url_lines + issn_lines + citation_lines) / len(lines)
+    return noise_ratio > 0.4
 
 
 def save_chunks_for_bm25(chunks: List[Document], path: Path) -> None:
@@ -74,8 +110,7 @@ def save_chunks_for_bm25(chunks: List[Document], path: Path) -> None:
     BM25 tuning from the vector store.
     """
     payload = [
-        {"page_content": d.page_content, "metadata": dict(d.metadata)}
-        for d in chunks
+        {"page_content": d.page_content, "metadata": dict(d.metadata)} for d in chunks
     ]
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     log.info("Saved %d chunks for BM25 to %s", len(chunks), path)

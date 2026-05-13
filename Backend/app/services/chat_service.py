@@ -14,8 +14,10 @@ Per-turn flow:
   6. Otherwise build the final response.
 """
 
+import asyncio
+import json
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, AsyncGenerator
 
 from app.services.query_parser import QueryParser
 from app.services.query_engine import QueryEngine
@@ -25,8 +27,25 @@ from app.services.external_knowledge_service import ExternalKnowledgeService
 from app.models.schemas import ParsedQuery
 from app.models.enums import ChatIntent
 from app.data.data import retrieve_true_data
+from app.rag.chains import stream_polished_answer
+
+from app.config import settings
 
 log = logging.getLogger(__name__)
+
+
+OOS_REDIRECT_TEXT = (
+    "I can only answer questions about the disaster damage dataset — "
+    "damage levels, model predictions, accuracy, cities or buildings, "
+    "and related disaster concepts. Try asking about a city, a damage "
+    "level, or the model's performance."
+)
+
+OOS_SUGGESTIONS = [
+    "Show the overall damage distribution",
+    "How accurate is the model?",
+    "Show me 5 destroyed buildings",
+]
 
 
 class ChatService:
@@ -37,6 +56,9 @@ class ChatService:
         self.responder = ResponseService(query_engine=self.qe)
         self.external = ExternalKnowledgeService()
 
+    # ------------------------------------------------------------------
+    # Non-streaming path (backward compatible)
+    # ------------------------------------------------------------------
     def process_query(
         self,
         query: str,
@@ -46,7 +68,6 @@ class ChatService:
     ) -> Dict[str, Any]:
         formatted_history = self._format_history(history or [])
 
-        # 1. Single LLM call — parser does everything at once.
         parsed = self.qp.parse(
             query=query,
             history=formatted_history,
@@ -61,7 +82,6 @@ class ChatService:
             parsed.reasoning,
         )
 
-        # 2. Pending clarification: merge if the user answered, drop if they pivoted.
         if pending_clarification:
             if parsed.is_answer_to_pending:
                 parsed = self._merge_pending(pending_clarification, parsed, query)
@@ -73,11 +93,10 @@ class ChatService:
 
         final_query = parsed.rewritten_query or query
 
-        # 3. Dispatch to engine.
         dispatch_result = self.dispatcher.dispatch(parsed.model_dump(mode="python"))
         data = dispatch_result.get("data", {}) or {}
 
-        # 4. Engine-raised clarification path.
+        # Engine-raised clarification path.
         if data.get("type") == "clarification_needed":
             message = data.get("message", "Could you clarify?")
             pending_out = data.get("pending_clarification")
@@ -90,19 +109,53 @@ class ChatService:
                 pending_clarification=pending_out,
             )
 
-        # 5. External knowledge (RAG stub for now).
+        # External knowledge (RAG).
         external_info = None
         external_note = None
         if parsed.needs_external_knowledge and parsed.external_query:
-            external_info = self.external.retrieve(parsed.external_query)
+            enriched = self._ensure_specific_query(parsed.external_query)
+            log.info("Calling external retrieval with query=%r", enriched)
+            external_info = self.external.retrieve(enriched)
+            log.info(
+                "External retrieval returned: %s",
+                repr(external_info)[:150] if external_info else "None",
+            )
             if external_info is None:
                 external_note = (
-                    "I don't have information on that in my reference materials "
+                    "I may not have information on that in my reference materials "
                     "(xBD documentation, FEMA guidelines, and Tubbs Fire reports). "
-                    "Here's what I can tell you from the dataset:"
                 )
 
-        # 6. Build the final response.
+        # OOS + external knowledge: return JUST the external answer.
+        if parsed.intent.value == "OUT_OF_SCOPE" and external_info is not None:
+            return self._build_response(
+                original_query=query,
+                final_query=final_query,
+                parsed=parsed,
+                response={
+                    "text": external_info,
+                    "suggestions": OOS_SUGGESTIONS,
+                    "ui_actions": [],
+                },
+                requires_clarification=False,
+                external_info=external_info,
+            )
+
+        # OOS with no external info — show redirect.
+        if parsed.intent.value == "OUT_OF_SCOPE":
+            return self._build_response(
+                original_query=query,
+                final_query=final_query,
+                parsed=parsed,
+                response={
+                    "text": OOS_REDIRECT_TEXT,
+                    "suggestions": OOS_SUGGESTIONS,
+                    "ui_actions": [],
+                },
+                requires_clarification=False,
+            )
+
+        # Dataset response.
         response = self.responder.generate(
             query=final_query,
             parsed=parsed,
@@ -119,6 +172,198 @@ class ChatService:
             requires_clarification=False,
             external_info=external_info,
         )
+
+    # ------------------------------------------------------------------
+    # Streaming path (SSE)
+    # ------------------------------------------------------------------
+    async def process_query_stream(
+        self,
+        query: str,
+        session_id: str,
+        history: Optional[List[Dict[str, str]]] = None,
+        pending_clarification: Optional[Dict[str, Any]] = None,
+    ) -> AsyncGenerator[str, None]:
+        formatted_history = self._format_history(history or [])
+        loop = asyncio.get_event_loop()
+
+        # --- Parser ---
+        parsed = await loop.run_in_executor(
+            None,
+            lambda: self.qp.parse(
+                query=query,
+                history=formatted_history,
+                pending_clarification=pending_clarification,
+            ),
+        )
+        log.info(
+            "stream session=%s intent=%s reasoning=%r",
+            session_id,
+            parsed.intent.value,
+            parsed.reasoning,
+        )
+
+        if pending_clarification and parsed.is_answer_to_pending:
+            parsed = self._merge_pending(pending_clarification, parsed, query)
+
+        final_query = parsed.rewritten_query or query
+
+        # --- Dispatch ---
+        dispatch_result = await loop.run_in_executor(
+            None,
+            lambda: self.dispatcher.dispatch(parsed.model_dump(mode="python")),
+        )
+        data = dispatch_result.get("data", {}) or {}
+
+        # --- Engine-raised clarification ---
+        if data.get("type") == "clarification_needed":
+            yield self._sse("token", data.get("message", "Could you clarify?"))
+            yield self._sse(
+                "metadata",
+                {
+                    "suggestions": [],
+                    "ui_actions": [],
+                    "requires_clarification": True,
+                    "pending_clarification": data.get("pending_clarification"),
+                },
+            )
+            yield self._sse("done", {})
+            return
+
+        # --- OOS with no external knowledge — early return (no LLM polish) ---
+        if (
+            parsed.intent.value == "OUT_OF_SCOPE"
+            and not parsed.needs_external_knowledge
+        ):
+            yield self._sse("token", OOS_REDIRECT_TEXT)
+            yield self._sse(
+                "metadata",
+                {
+                    "suggestions": OOS_SUGGESTIONS,
+                    "ui_actions": [],
+                    "requires_clarification": False,
+                },
+            )
+            yield self._sse("done", {})
+            return
+
+        llm = self.external.get_generator_llm()
+
+        # --------------------------------------------------------------
+        # PURE EXTERNAL KNOWLEDGE (OOS + needs_external_knowledge)
+        # --------------------------------------------------------------
+        if (
+            parsed.needs_external_knowledge
+            and parsed.external_query
+            and parsed.intent.value == "OUT_OF_SCOPE"
+        ):
+            enriched = self._ensure_specific_query(parsed.external_query)
+            external_info = await loop.run_in_executor(
+                None,
+                self.external.retrieve,
+                enriched,
+            )
+
+            if not external_info:
+                yield self._sse("token", OOS_REDIRECT_TEXT)
+                yield self._sse(
+                    "metadata",
+                    {
+                        "suggestions": OOS_SUGGESTIONS,
+                        "ui_actions": [],
+                        "requires_clarification": False,
+                    },
+                )
+                yield self._sse("done", {})
+                return
+
+            # Strip the "Sources: ..." line before polishing, then re-append.
+            sources_line = ""
+            base_for_polish = external_info
+            if "\n\nSources:" in external_info:
+                parts = external_info.rsplit("\n\nSources:", 1)
+                base_for_polish = parts[0].strip()
+                sources_line = "\n\nSources:" + parts[1]
+
+            if settings.USE_LLM_RESPONSE_POLISH and llm:
+                async for token in stream_polished_answer(
+                    base_for_polish, final_query, llm
+                ):
+                    yield self._sse("token", token)
+            else:
+                for line in base_for_polish.split("\n"):
+                    if line.strip():
+                        yield self._sse("token", line + "\n")
+                        await asyncio.sleep(0.03)
+
+            if sources_line:
+                yield self._sse("token", sources_line)
+
+            yield self._sse(
+                "metadata",
+                {
+                    "suggestions": OOS_SUGGESTIONS,
+                    "ui_actions": [],
+                    "requires_clarification": False,
+                },
+            )
+            yield self._sse("done", {})
+            return
+
+        # --------------------------------------------------------------
+        # DATASET RESPONSE (with optional mixed external knowledge)
+        # --------------------------------------------------------------
+        external_info = None
+        if parsed.needs_external_knowledge and parsed.external_query:
+            enriched = self._ensure_specific_query(parsed.external_query)
+            external_info = await loop.run_in_executor(
+                None,
+                self.external.retrieve,
+                enriched,
+            )
+
+        # Build the base text without polish — polish happens via streaming.
+        response = self.responder.generate(
+            query=final_query,
+            parsed=parsed,
+            result=dispatch_result,
+            external_info=external_info,
+            external_note=None,
+            skip_polish=True,
+        )
+
+        base_text = response.get("text", "")
+
+        if settings.USE_LLM_RESPONSE_POLISH and llm and base_text:
+            async for token in stream_polished_answer(base_text, final_query, llm):
+                yield self._sse("token", token)
+        else:
+            for line in base_text.split("\n"):
+                if line.strip():
+                    yield self._sse("token", line + "\n")
+                    await asyncio.sleep(0.03)
+
+        yield self._sse(
+            "metadata",
+            {
+                "suggestions": response.get("suggestions", []),
+                "ui_actions": response.get("ui_actions", []),
+                "requires_clarification": False,
+                "pending_clarification": None,
+            },
+        )
+        yield self._sse("done", {})
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _sse(event: str, data) -> str:
+        """Format a Server-Sent Event."""
+        if isinstance(data, str):
+            payload = json.dumps({"text": data})
+        else:
+            payload = json.dumps(data)
+        return f"event: {event}\ndata: {payload}\n\n"
 
     @staticmethod
     def _format_history(history: List[Dict[str, str]]) -> str:
@@ -242,3 +487,19 @@ class ChatService:
         if external_info is not None:
             payload["external_info"] = external_info
         return payload
+
+    @staticmethod
+    def _ensure_specific_query(query: str) -> str:
+        """Safety net: prepend Tubbs Fire context to vague external queries.
+
+        The parser SHOULD enrich queries per its prompt rules. This is a
+        belt-and-suspenders backup. If you see the warning fire on real
+        queries, that's data telling you the parser prompt needs work.
+        """
+        if not query:
+            return query
+        event_terms = {"tubbs", "santa rosa", "wildfire", "2017", "fire"}
+        if not any(term in query.lower() for term in event_terms):
+            log.warning("Parser produced vague external_query: %r — enriching", query)
+            return f"2017 Tubbs Fire Santa Rosa: {query}"
+        return query

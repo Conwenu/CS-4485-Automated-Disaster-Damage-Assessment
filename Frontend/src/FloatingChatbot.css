@@ -1266,3 +1266,31 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ---------- Streaming blur-in effect ---------- */
+
+.fc-bubble .fc-stream-char {
+  display: inline-block;
+  animation: fc-blur-in 320ms cubic-bezier(0.2, 0.65, 0.4, 1) forwards;
+  filter: blur(8px);
+  opacity: 0;
+  transform: translateY(2px);
+}
+
+@keyframes fc-blur-in {
+  0% {
+    filter: blur(8px);
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  100% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Optional: preserve whitespace so spaces between word-spans stay visible */
+.fc-bubble .fc-stream-char[data-space="true"] {
+  white-space: pre;
+}

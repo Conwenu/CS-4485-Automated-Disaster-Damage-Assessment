@@ -8,7 +8,8 @@ Two chains:
 
 Both share one ChatGoogleGenerativeAI instance to avoid duplicate auth setup.
 """
-from typing import List, Tuple
+
+from typing import List, Tuple, AsyncGenerator
 
 from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -35,47 +36,39 @@ class _GraderVerdict(BaseModel):
             "the keywords without addressing them, or is off-topic."
         )
     )
-    reasoning: str = Field(
-        description="One short sentence explaining the verdict."
-    )
+    reasoning: str = Field(description="One short sentence explaining the verdict.")
 
 
-_GRADER_SYSTEM = """You are a relevance grader for a RAG system over a small,
-trusted corpus of two documents:
-  - The xBD research paper (Gupta et al., 2019), describing the xBD dataset.
-  - The FEMA Preliminary Damage Assessment Guide (2025).
+_GRADER_SYSTEM = """You are a lenient relevance grader for a RAG system over
+disaster assessment documents.
 
-You receive ONE candidate document chunk and ONE user question. Decide whether
-the chunk is RELEVANT to the question.
+You receive ONE document chunk and ONE question. Your job is simple: decide
+whether this chunk contains ANY information that could help answer the question,
+even partially or indirectly.
 
-CRITICAL — SOURCE SELF-REFERENCE:
-When a question asks about "xBD" (the dataset) or "FEMA's process," chunks from
-the xBD paper or the FEMA guide ARE answering that question, even when they don't
-mention "xBD" or "FEMA" by name. The xBD paper IS xBD. The FEMA guide IS FEMA.
+Mark RELEVANT (True) when:
+- The chunk discusses the same topic, event, or subject as the question
+- It contains facts, numbers, names, or descriptions related to what is asked
+- The answer can be inferred or synthesized from the chunk's content
+- The chunk uses different words but refers to the same concept
+  (e.g. "economic loss" is relevant to "how much did it cost?")
+  (e.g. "structures destroyed" is relevant to "how many homes burned?")
+  (e.g. "suppression costs" is relevant to "what was the financial damage?")
+- It provides partial information (the generator can combine multiple chunks)
 
-For example:
-- Question: "What metric does xBD use?"
-  Chunk says: "we attained an overall weighted F1 score of 0.2654"
-  → RELEVANT. The paper IS xBD; "we" means the xBD authors.
-- Question: "How does FEMA classify damage?"
-  Chunk says: "Inspectors categorize each structure as Destroyed, Major..."
-  → RELEVANT. The guide IS FEMA's process.
+Mark NOT RELEVANT (False) ONLY when:
+- The chunk is clearly about a completely different subject
+- It is a navigation element: table of contents, page header, footer,
+  citation list, or acknowledgments section with no substantive content
+- It contains zero information that could contribute to answering the question
 
-RELEVANT means:
-- The chunk discusses the topic of the question (a metric, process, definition,
-  procedure, criterion, or description related to the subject).
-- The chunk contains specific facts, numbers, methods, or descriptions that
-  could form part of an answer.
-- For questions about xBD or FEMA: a chunk from those documents on the right
-  topic is relevant, even without naming xBD or FEMA explicitly.
+KEY RULE: When in doubt, return True. A false negative (dropping a
+relevant chunk) is much more harmful than a false positive (keeping a
+marginally relevant chunk). The generator will ignore information it
+does not need. It cannot use information it was never shown.
 
-NOT RELEVANT means:
-- The chunk is purely a table of contents, header, citation, or appendix
-  listing with no substantive content.
-- The chunk is on a clearly different subject than the question.
-
-Lean toward RELEVANT when on-topic. False negatives lose information; false
-positives waste a few tokens. When uncertain, return True."""
+Do NOT require exact keyword matches. Reason about meaning and topic,
+not surface form."""
 
 
 def build_grader_chain() -> Runnable:
@@ -83,13 +76,17 @@ def build_grader_chain() -> Runnable:
     llm = _build_llm()
     structured = llm.with_structured_output(_GraderVerdict, method="function_calling")
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", _GRADER_SYSTEM),
-        ("human",
-         "Question:\n{question}\n\n"
-         "Document chunk:\n{document}\n\n"
-         "Is this chunk relevant?"),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", _GRADER_SYSTEM),
+            (
+                "human",
+                "Question:\n{question}\n\n"
+                "Document chunk:\n{document}\n\n"
+                "Is this chunk relevant?",
+            ),
+        ]
+    )
 
     return prompt | structured
 
@@ -100,6 +97,8 @@ context passages provided. The context comes from authoritative sources
 
 STRICT RULES:
 - Use ONLY information present in the context. Never add outside knowledge.
+- Format the answer in clean Markdown when it improves clarity: use headings,
+  bullet lists, bold for key terms. Plain prose is fine for short answers.
 - If the context does not contain enough information to answer, say so plainly:
   "The provided sources don't contain a clear answer to that."
 - Keep the answer to 2-4 sentences. Be precise, not flowery.
@@ -125,10 +124,12 @@ def build_generator_chain() -> Runnable:
     """Returns a Runnable: dict(question, documents) -> str."""
     llm = _build_llm()
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", _GENERATOR_SYSTEM),
-        ("human", "Question: {question}\n\nContext:\n{context}\n\nAnswer:"),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", _GENERATOR_SYSTEM),
+            ("human", "Question: {question}\n\nContext:\n{context}\n\nAnswer:"),
+        ]
+    )
 
     return (
         RunnableLambda(
@@ -143,7 +144,6 @@ def build_generator_chain() -> Runnable:
     )
 
 
-
 def collect_citations(docs: List[Document]) -> List[str]:
     """Return a deduplicated, ordered list of source citations."""
     seen = set()
@@ -154,3 +154,65 @@ def collect_citations(docs: List[Document]) -> List[str]:
             seen.add(src)
             out.append(src)
     return out
+
+
+async def stream_answer(
+    question: str,
+    docs: List[Document],
+    llm: ChatGoogleGenerativeAI,
+) -> AsyncGenerator[str, None]:
+    """Stream the generator response token by token using LangChain astream."""
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    context = _format_docs(docs)
+
+    messages = [
+        SystemMessage(content=_GENERATOR_SYSTEM),
+        HumanMessage(content=f"Question: {question}\n\nContext:\n{context}\n\nAnswer:"),
+    ]
+
+    async for chunk in llm.astream(messages):
+        token = chunk.content
+        if token:
+            yield token
+
+
+async def stream_polished_answer(
+    text: str,
+    query: str,
+    llm: ChatGoogleGenerativeAI,
+) -> AsyncGenerator[str, None]:
+    """Stream the polish LLM output token by token.
+
+    Takes a complete base text, sends it to the polish LLM,
+    and streams the reformatted markdown response as it arrives.
+    """
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    messages = [
+        SystemMessage(
+            content=(
+                "You are rewriting an answer for readability.\n"
+                "Reformat the answer in proper Markdown. Choose the best "
+                "structure yourself — use headings, bullet lists, bold for "
+                "key terms, etc., wherever it improves clarity.\n"
+                "STRICT RULES:\n"
+                "- Do NOT change any numbers, percentages, or counts.\n"
+                "- Do NOT add facts that aren't in the base text.\n"
+                "- Keep it concise.\n"
+                "Return only the rewritten answer."
+            )
+        ),
+        HumanMessage(
+            content=(
+                f"User query: {query}\n\n"
+                f"Base answer:\n{text}\n\n"
+                "Rewritten answer:"
+            )
+        ),
+    ]
+
+    async for chunk in llm.astream(messages):
+        token = chunk.content
+        if token:
+            yield token

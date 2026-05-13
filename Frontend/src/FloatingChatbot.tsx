@@ -10,6 +10,7 @@ type ChatMessage = {
   contentHtml: string;
   suggestions?: string[];
   timestamp: string;
+  isStreaming?: boolean;
 };
 
 type ApiResponse = {
@@ -19,6 +20,18 @@ type ApiResponse = {
   };
   is_follow_up?: boolean;
   final_query?: string;
+};
+
+type StreamMetadata = {
+  suggestions?: string[];
+  ui_actions?: UiAction[];
+  requires_clarification?: boolean;
+  pending_clarification?: Record<string, any> | null;
+};
+
+type UiAction = {
+  type: string;
+  [key: string]: any;
 };
 
 const STARTER_QUESTIONS = [
@@ -244,6 +257,98 @@ function renderMarkdown(src: string): string {
   return out.join("");
 }
 
+/**
+ * Wraps the trailing characters of rendered HTML in animated spans
+ * for a character-by-character blur-in streaming effect.
+ *
+ * Only wraps the last `tailLength` characters of visible text so that
+ * already-rendered content doesn't re-animate on each update.
+ */
+function withStreamingTail(html: string, tailLength: number): string {
+  if (!html || tailLength <= 0) return html;
+
+  // Find the last text node region — walk backwards through the HTML,
+  // counting visible characters (skipping tags) until we hit tailLength.
+  let chars = 0;
+  let cutIdx = html.length;
+  let inTag = false;
+  let inEntity = false;
+
+  for (let i = html.length - 1; i >= 0; i--) {
+    const c = html[i];
+    if (c === ">") {
+      inTag = true;
+      continue;
+    }
+    if (c === "<") {
+      inTag = false;
+      continue;
+    }
+    if (inTag) continue;
+
+    // Handle HTML entities (&amp;, &lt;, etc.) — count them as 1 char
+    if (c === ";") {
+      inEntity = true;
+      continue;
+    }
+    if (inEntity) {
+      if (c === "&") {
+        chars++;
+        inEntity = false;
+        cutIdx = i;
+        if (chars >= tailLength) break;
+      }
+      continue;
+    }
+
+    chars++;
+    cutIdx = i;
+    if (chars >= tailLength) break;
+  }
+
+  if (cutIdx >= html.length) return html;
+
+  const head = html.slice(0, cutIdx);
+  const tail = html.slice(cutIdx);
+
+  // Wrap each character in tail in an animated span, but skip tag boundaries.
+  let wrapped = "";
+  let i = 0;
+  while (i < tail.length) {
+    const c = tail[i];
+
+    // Skip tag passthrough — don't wrap HTML tags
+    if (c === "<") {
+      const end = tail.indexOf(">", i);
+      if (end === -1) {
+        wrapped += tail.slice(i);
+        break;
+      }
+      wrapped += tail.slice(i, end + 1);
+      i = end + 1;
+      continue;
+    }
+
+    // Skip HTML entities — wrap the entire entity as one unit
+    if (c === "&") {
+      const end = tail.indexOf(";", i);
+      if (end !== -1 && end - i < 10) {
+        wrapped += `<span class="fc-stream-char">${tail.slice(i, end + 1)}</span>`;
+        i = end + 1;
+        continue;
+      }
+    }
+
+    // Wrap regular character with staggered animation delay
+    const delay = Math.min((i / tail.length) * 200, 200);
+    const spaceAttr = c === " " ? ` data-space="true"` : "";
+    wrapped += `<span class="fc-stream-char" style="animation-delay:${delay.toFixed(0)}ms"${spaceAttr}>${c}</span>`;
+    i++;
+  }
+
+  return head + wrapped;
+}
+
 export function FloatingChatbot() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -253,6 +358,7 @@ export function FloatingChatbot() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const renderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messageIndices = useMemo(() => {
     let userCount = 0;
@@ -319,9 +425,23 @@ export function FloatingChatbot() {
     setInput("");
     setIsLoading(true);
 
+    // Create the assistant message immediately with empty content.
+    // The streaming loop will update it in place.
+    const assistantId = `msg-${Date.now()}-assistant`;
+    const assistantMessage: ChatMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      contentHtml: "",
+      suggestions: [],
+      timestamp: timeNow(),
+      isStreaming: true,
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
+
     try {
       const apiBase = import.meta.env.VITE_API_URL ?? "";
-      const response = await fetch(`${apiBase}/query/ask`, {
+      const response = await fetch(`${apiBase}/query/ask/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -336,28 +456,120 @@ export function FloatingChatbot() {
         throw new Error(err.detail || `HTTP ${response.status}`);
       }
 
-      const data: ApiResponse = await response.json();
-      const assistantText = data.response?.text ?? "No response text.";
-      const assistantMessage: ChatMessage = {
-        id: `msg-${Date.now()}-assistant`,
-        role: "assistant",
-        content: assistantText,
-        contentHtml: renderMarkdown(assistantText),
-        suggestions: data.response?.suggestions ?? [],
-        timestamp: timeNow(),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE events are separated by double newlines
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? ""; // keep the last incomplete event
+
+        for (const event of events) {
+          if (!event.trim()) continue;
+
+          const lines = event.split("\n");
+          const eventType = lines
+            .find((l) => l.startsWith("event:"))
+            ?.replace("event:", "")
+            .trim();
+          const dataLine = lines
+            .find((l) => l.startsWith("data:"))
+            ?.replace("data:", "")
+            .trim();
+
+          if (!dataLine) continue;
+
+          let parsed: any;
+          try {
+            parsed = JSON.parse(dataLine);
+          } catch {
+            continue;
+          }
+
+          if (eventType === "token") {
+            const tokenData = parsed as { text: string };
+            const prevLength = accumulated.length;
+            accumulated += tokenData.text;
+            const newChars = accumulated.length - prevLength;
+
+            if (renderTimer.current) clearTimeout(renderTimer.current);
+            renderTimer.current = setTimeout(() => {
+              const baseHtml = renderMarkdown(accumulated);
+              // Wrap the last `newChars + buffer` characters in animated spans.
+              // The extra buffer ensures characters from the previous batch
+              // that haven't finished animating still look smooth.
+              const html = withStreamingTail(baseHtml, newChars + 20);
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        content: accumulated,
+                        contentHtml: html,
+                        isStreaming: true,
+                      }
+                    : m,
+                ),
+              );
+            }, 80);
+          } else if (eventType === "metadata") {
+            // Attach suggestions and ui_actions when text is complete
+            const meta = parsed as StreamMetadata;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      suggestions: meta.suggestions ?? [],
+                      isStreaming: false,
+                    }
+                  : m,
+              ),
+            );
+          } else if (eventType === "done") {
+            if (renderTimer.current) {
+              clearTimeout(renderTimer.current);
+              renderTimer.current = null;
+            }
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      content: accumulated,
+                      contentHtml: renderMarkdown(accumulated), // no wrapping
+                      isStreaming: false,
+                    }
+                  : m,
+              ),
+            );
+          }
+        }
+      }
     } catch (error) {
-      const errText =
-        error instanceof Error ? error.message : "Request failed.";
-      const errMsg: ChatMessage = {
-        id: `msg-${Date.now()}-error`,
-        role: "error",
-        content: errText,
-        contentHtml: escapeHtml(errText),
-        timestamp: timeNow(),
-      };
-      setMessages((prev) => [...prev, errMsg]);
+      // Remove the empty assistant message and show error instead
+      setMessages((prev) => {
+        const withoutEmpty = prev.filter((m) => m.id !== assistantId);
+        const errText =
+          error instanceof Error ? error.message : "Request failed.";
+        return [
+          ...withoutEmpty,
+          {
+            id: `msg-${Date.now()}-error`,
+            role: "error" as ChatRole,
+            content: errText,
+            contentHtml: escapeHtml(errText),
+            timestamp: timeNow(),
+          },
+        ];
+      });
     } finally {
       setIsLoading(false);
     }
@@ -545,7 +757,16 @@ export function FloatingChatbot() {
 
                     <div
                       className="fc-bubble"
-                      dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
+                      dangerouslySetInnerHTML={{
+                        __html:
+                          msg.contentHtml ||
+                          (msg.isStreaming
+                            ? `<div class="fc-loading-dots">
+                              <div class="fc-dots"><span/><span/><span/></div>
+                              <span class="fc-loading-label">Thinking</span>
+                            </div>`
+                            : ""),
+                      }}
                     />
 
                     {msg.role === "assistant" && (
@@ -624,7 +845,7 @@ export function FloatingChatbot() {
                 );
               })}
 
-              {isLoading && (
+              {isLoading && !messages.some((m) => m.isStreaming) && (
                 <div className="fc-msg assistant">
                   <div className="fc-msg-head">
                     <span className="fc-msg-head-index">

@@ -6,9 +6,9 @@ for tone, constrained by a number-preservation guard that actually works.
 """
 
 import re
+from decimal import Decimal
 from typing import Dict, Any, Optional
 
-from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -28,6 +28,7 @@ class ResponseService:
         result: Dict[str, Any],
         external_info: Optional[str] = None,
         external_note: Optional[str] = None,
+        skip_polish: bool = False,  # ← add this
     ) -> Dict[str, Any]:
         data = self._normalize(result.get("data") or {})
         base_text = self._format(data)
@@ -38,7 +39,7 @@ class ResponseService:
             base_text = f"{external_note}\n\n{base_text}"
 
         text = base_text
-        if settings.USE_LLM_RESPONSE_POLISH:
+        if settings.USE_LLM_RESPONSE_POLISH and not skip_polish:
             text = self._polish(query, base_text)
 
         suggestions = result.get("suggestions") or self.suggester.generate(parsed, data)
@@ -73,7 +74,6 @@ class ResponseService:
                     api_key=settings.GOOGLE_API_KEY,
                     temperature=0,
                 )
-
             prompt = ChatPromptTemplate.from_template(
                 "You are rewriting an answer for readability.\n"
                 "Reformat the answer in proper Markdown. Choose the best structure yourself—use headings, bullet lists, bold for key terms, code blocks for code, etc., wherever it improves clarity or scannability.\n"
@@ -90,15 +90,47 @@ class ResponseService:
             # Guard: every number from the base must survive the rewrite.
             if not self._numbers_preserved(base_text, text):
                 return base_text
+
             return text or base_text
         except Exception:
             return base_text
 
     @staticmethod
     def _numbers_preserved(base: str, rewritten: str) -> bool:
-        base_nums = set(re.findall(r"\d+\.?\d*", base))
-        out_nums = set(re.findall(r"\d+\.?\d*", rewritten))
-        return base_nums.issubset(out_nums)
+        """
+        Check if all numbers in `base` are present in `rewritten`.
+        Handles:
+          - Commas in thousands
+          - Decimals with normalization
+          - Negative numbers
+          - Scientific notation
+        """
+
+        # Regex for numbers:
+        # - optional minus sign
+        # - digits with optional commas
+        # - optional decimal part
+        # - optional scientific notation
+        pattern = re.compile(
+            r"-?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:[eE][+-]?\d+)?|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?"
+        )
+
+        def normalize_number(num_str: str) -> str:
+            # Remove commas
+            num_str = num_str.replace(",", "")
+            try:
+                # Convert to Decimal for exact comparison, handles scientific notation
+                return str(Decimal(num_str))
+            except Exception:
+                # fallback: return as-is if conversion fails
+                return num_str
+
+        def extract_nums(text: str) -> set:
+            return {normalize_number(m) for m in pattern.findall(text)}
+
+        base_nums = extract_nums(base)
+        rewritten_nums = extract_nums(rewritten)
+        return base_nums.issubset(rewritten_nums)
 
     def _format(self, d: Dict[str, Any]) -> str:
         t = d.get("type")
