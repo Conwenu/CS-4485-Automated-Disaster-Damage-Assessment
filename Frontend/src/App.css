@@ -260,6 +260,20 @@
   height: 600px;
 }
 
+.map-layer-toggles {
+  position: absolute;
+  top: 5rem;
+  left: 0.5rem;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.459);
+  border-radius: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+}
+
 .map-toolbar {
   position: absolute;
   top: 0.75rem;

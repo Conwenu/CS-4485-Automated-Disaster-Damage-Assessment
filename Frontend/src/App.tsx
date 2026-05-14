@@ -108,9 +108,12 @@ function App() {
   const [demoError, setDemoError] = useState("");
   const [demoResult, setDemoResult] = useState<VlmDemoResult | null>(null);
 
+  const [mapLayer, setMapLayer] = useState<"pre" | "post">("pre");
+  const [selectedTile, setSelectedTile] = useState<string>("00000000")
+
   const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
   useEffect(() => {
-    fetch("/public/bounding_boxes.json")
+    fetch("/bounding_boxes.json")
       .then((r) => r.json())
       .then((data) => {
         console.log("all bounding boxes:", data.length);
@@ -299,7 +302,7 @@ function App() {
             <div className="imagery-content">
               {activeImageTab === "before" ? (
                 <img
-                  src="/santa-rosa-wildfire_00000000_pre_disaster.png"
+                  src={`https://amzn-santa-rosa-wildfire-images.s3.us-east-1.amazonaws.com/datatsetCapstone/santa-rosa-wildfire_${selectedTile}_pre_disaster.png`}
                   alt="Before"
                   className="imagery-img"
                   onError={(e) => {
@@ -308,7 +311,7 @@ function App() {
                 />
               ) : (
                 <img
-                  src="/santa-rosa-wildfire_00000000_post_disaster.png"
+                  src={`https://amzn-santa-rosa-wildfire-images.s3.us-east-1.amazonaws.com/datatsetCapstone/santa-rosa-wildfire_${selectedTile}_post_disaster.png`}
                   alt="After disaster"
                   className="imagery-img"
                   onError={(e) => {
@@ -419,7 +422,25 @@ function App() {
               <h2>Property Damage Map</h2>
             </div>
             <div className="map-container">
-              <Map type = "pre" boundingBoxes={boundingBoxes} damageFilter={damageFilter}></Map>
+              <div className="map-layer-toggles">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={mapLayer == "pre"}
+                    onChange={() => setMapLayer("pre")}
+                  />
+                  Pre-Disaster
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={mapLayer == "post"}
+                    onChange={() => setMapLayer("post")}
+                    />
+                    Post-Disaster
+                </label>
+              </div>
+              <Map mapLayer={mapLayer} boundingBoxes={boundingBoxes} damageFilter={damageFilter} onTileClick={(tileID) => setSelectedTile(tileID)}></Map>
             </div>
           </section>
           <section className="panel vlm-demo-panel">
