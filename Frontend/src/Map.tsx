@@ -4,13 +4,14 @@ import type { LatLngBoundsExpression } from "leaflet";
 import 'leaflet/dist/leaflet.css';
 
 interface MapProperties {
-    type: "pre" | "post";
+    mapLayer: "pre" | "post";
     boundingBoxes?: BoundingBox[];
     damageFilter?: {
         noDamage: boolean;
         minorDamage: boolean;
         severeDamage: boolean;
     }
+    onTileClick?: (tileID: string) => void;
 }
 
 export type BoundingBox = {
@@ -22,6 +23,13 @@ export type BoundingBox = {
 type GeotransformEntry = [[number, number, number, number, number, number], string]
 type GeotransformJSON = Record<string, GeotransformEntry>
 type Geotransform = [number, number, number, number, number, number];
+
+type Overlay = {
+    url: string;
+    bounds: LatLngBoundsExpression;
+    geotransform: Geotransform;
+    imageID: string;
+}
 
 const S3_IMGS = "https://amzn-santa-rosa-wildfire-images.s3.us-east-1.amazonaws.com/datatsetCapstone"
 const IMG_SIZE = 1024
@@ -53,41 +61,54 @@ function subtypeDamageFilter(subtype: string, damageFilter: MapProperties["damag
     return damageFilter.severeDamage;
 }
 
-function subtypeColor(subtype: string): string {
+function subtypeColor(subtype: string, isPre: boolean): string {
+    if (isPre) return "#22c55e"
     if (subtype == "no-damage") return "#22c55e";
     if (subtype == "minor-damage") return "#f59e0b";
     if (subtype == "un-classified") return "#9ca3af";
     return "#ef4444";
 }
 
-export default function Map({type, boundingBoxes = [], damageFilter}: MapProperties){
-    const [overlays, setOverlay] = useState<{ 
-        url: string; 
-        bounds: LatLngBoundsExpression;
-        geotransform: Geotransform;
-        imageID: string;
-    } []>([])
+function buildOverlays(data: GeotransformJSON, suffix: string): Overlay[] {
+    return Object.entries(data)
+        .filter(([filename]) => filename.includes(suffix))
+        .map(([filename, [geotransform]]) => {
+            const match = filename.match(/santa-rosa-wildfire_(\d+)_/)
+            const imageID = match ? `santa-rosa-${match[1]}` : filename.replace(`_${suffix}.png`, "")
+            
+            return{
+                url: `${S3_IMGS}/${filename}`,
+                bounds: getBounds(geotransform),
+                geotransform,
+                imageID
+            }
+        })
+}
+
+export default function Map({mapLayer, boundingBoxes = [], damageFilter, onTileClick}: MapProperties){
+    const [preOverlays, setPreOverlays] = useState<Overlay[]>([])
+    const [postOverlays, setPostOverlays] = useState<Overlay[]>([])
 
     useEffect(() => {
-        fetch("/public/santa_rose_geotransform.json")
+        fetch("/santa_rose_geotransform.json")
         .then (res => res.json())
         .then((data: GeotransformJSON) => {
-            const suffix = type === "pre" ? "pre_disaster" : "post_disaster"
-
-            const filtered = Object.entries(data)
-                .filter(([filename]) => filename.includes(suffix))
-                .map(([filename, [geotransform]]) => {
-                    const match = filename.match(/santa-rosa-wildfire_(\d+)_/)
-                    const imageID = match ? `santa-rosa-${match[1]}`: filename.replace(`_${suffix}.png`, "")
-                    return {
-                        url: `${S3_IMGS}/${filename}`,
-                        bounds: getBounds(geotransform),
-                        geotransform,
-                        imageID
-                }})
-            setOverlay(filtered)
+            setPreOverlays(buildOverlays(data, "pre_disaster"))
+            setPostOverlays(buildOverlays(data, "post_disaster"))
         })
-    }, [type])
+    }, [])
+
+    const isPre = mapLayer == "pre"
+
+    useEffect(() => {
+        const toPreload = isPre ? postOverlays : preOverlays;
+        toPreload.forEach(o => {
+            const img = new window.Image();
+            img.src = o.url;
+        });
+    }, [isPre, preOverlays, postOverlays]);
+
+    const activeOverlays = isPre ? preOverlays: postOverlays
 
     return (
         <MapContainer
@@ -102,20 +123,25 @@ export default function Map({type, boundingBoxes = [], damageFilter}: MapPropert
                 opacity={0.5}
                 attribution="© MapTiler © OpenStreetMap contributors"
             />
-            {overlays.map(({url, bounds}) => (
+            {activeOverlays.map((overlay: Overlay) => (
                 <ImageOverlay
-                    key={url}
-                    url={url}
-                    bounds={bounds}
+                    key={`${mapLayer}-${overlay.url}`}
+                    url={overlay.url}
+                    bounds={overlay.bounds}
                     opacity={1.0}
+                    eventHandlers={{
+                        click: () => {
+                            if (onTileClick) onTileClick(overlay.imageID.replace("santa-rosa-", ""))
+                        }
+                    }}
                 />
             ))}
             {boundingBoxes
-            .filter(box => subtypeDamageFilter(box.subtype, damageFilter))
+            .filter(box => isPre ? true : subtypeDamageFilter(box.subtype, damageFilter))
             .map(({building_id, subtype, bbox}) => {
                 const imageIDMatch = building_id.match(/^(santa-rosa-\d+)/)
                 const imageID = imageIDMatch ? imageIDMatch[1] : null
-                const tileOverlay = imageID ? overlays.find(o => o.imageID == imageID) : overlays[0]
+                const tileOverlay = imageID ? activeOverlays.find(o => o.imageID == imageID) : activeOverlays[0]
                 
                 if(!tileOverlay) return null
 
@@ -128,11 +154,16 @@ export default function Map({type, boundingBoxes = [], damageFilter}: MapPropert
                         key = {building_id}
                         bounds = {[sw, ne]}
                         pathOptions={{
-                            color: subtypeColor(subtype),
+                            color: subtypeColor(subtype, isPre),
                             weight: 1.5,
                             fill: true,
                             fillOpacity: 0.15,
                             dashArray: "4 2"
+                        }}
+                        eventHandlers={{
+                            click: () => {
+                                if (onTileClick) onTileClick(tileOverlay.imageID.replace("santa-rosa-", ""))
+                            }
                         }}
                     />
                 )
