@@ -13,14 +13,6 @@ type ChatMessage = {
   isStreaming?: boolean;
 };
 
-type ApiResponse = {
-  response?: {
-    text?: string;
-    suggestions?: string[];
-  };
-  is_follow_up?: boolean;
-  final_query?: string;
-};
 
 type StreamMetadata = {
   suggestions?: string[];
