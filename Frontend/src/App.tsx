@@ -91,10 +91,6 @@ function App() {
     minorDamage: true,
     severeDamage: true,
   });
-  const [mapZoom, setMapZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [activeImageTab, setActiveImageTab] = useState<"before" | "after">(
     "after",
   );
@@ -195,39 +191,7 @@ function App() {
       setDemoLoading(false);
     }
   };
-
-  const renderHouse = (property: PropertyPoint) => {
-    const isVisible = filteredProperties.some((p) => p.id === property.id);
-    if (!isVisible) {
-      return <div key={property.id} className="map-house empty-slot" />;
-    }
-
-    const damageClass =
-      property.damageLevel === "noDamage"
-        ? "no-damage"
-        : property.damageLevel === "minorDamage"
-          ? "minor-damage"
-          : "severe-damage";
-
-    return (
-      <button
-        key={property.id}
-        type="button"
-        className={`map-house ${damageClass}${
-          property.id === selectedPropertyId ? " selected" : ""
-        }`}
-        onClick={() => setSelectedPropertyId(property.id)}
-        aria-label={`Property – ${damageClass.replace("-", " ")}`}
-      />
-    );
-  };
-
-  const row0 = PROPERTIES.filter((p) => p.row === 0).sort(
-    (a, b) => a.col - b.col,
-  );
-  const row1 = PROPERTIES.filter((p) => p.row === 1).sort(
-    (a, b) => a.col - b.col,
-  );
+  
   const groundTruthCounts = summaryData.ground_truth_counts as Partial<
     Record<EvaluationLabel, number>
   >;
