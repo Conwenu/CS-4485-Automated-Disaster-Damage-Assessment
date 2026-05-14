@@ -1,7 +1,9 @@
 import { useMemo, useState, useEffect } from "react";
 import "./App.css";
+import 'leaflet/dist/leaflet.css';
+import Map from "./Map";
 import summaryData from "../../Backend/data/santa_rosa/building_summary.json";
-import FloatingChatbot from "./FloatingChatbot";
+import { FloatingChatbot } from "./FloatingChatbot";
 
 type DamageLevel = "noDamage" | "minorDamage" | "severeDamage";
 
@@ -108,12 +110,10 @@ function App() {
 
   const [boundingBoxes, setBoundingBoxes] = useState<BoundingBox[]>([]);
   useEffect(() => {
-    fetch(
-      "http://localhost:8000/api/bounding-boxes/?image_id=santa-rosa-00000000",
-    )
+    fetch("/public/bounding_boxes.json")
       .then((r) => r.json())
       .then((data) => {
-        console.log("Bounding boxes:", data);
+        console.log("all bounding boxes:", data.length);
         setBoundingBoxes(data);
       })
       .catch((err) => console.error("Failed to fetch bounding boxes:", err));
@@ -419,145 +419,7 @@ function App() {
               <h2>Property Damage Map</h2>
             </div>
             <div className="map-container">
-              <div className="map-toolbar">
-                <button
-                  className="map-button"
-                  type="button"
-                  onClick={() => setMapZoom((z) => Math.min(z + 0.2, 3))}
-                >
-                  +
-                </button>
-                <button
-                  className="map-button"
-                  type="button"
-                  onClick={() => setMapZoom((z) => Math.max(z - 0.2, 0.5))}
-                >
-                  −
-                </button>
-              </div>
-              <div
-                className="map-placeholder"
-                style={{
-                  overflow: "hidden",
-                  position: "relative",
-                  cursor: isDragging ? "grabbing" : "grab",
-                }}
-                onMouseDown={(e) => {
-                  setIsDragging(true);
-                  setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-                }}
-                onMouseMove={(e) => {
-                  if (!isDragging) return;
-                  setPan({
-                    x: e.clientX - dragStart.x,
-                    y: e.clientY - dragStart.y,
-                  });
-                }}
-                onMouseUp={() => setIsDragging(false)}
-                onMouseLeave={() => setIsDragging(false)}
-              >
-                <img
-                  src={
-                    activeImageTab === "before"
-                      ? "/santa-rosa-wildfire_00000000_pre_disaster.png"
-                      : "/santa-rosa-wildfire_00000000_post_disaster.png"
-                  }
-                  alt="Satellite view"
-                  draggable={false}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "contain",
-                    transform: `scale(${mapZoom}) translate(${pan.x / mapZoom}px, ${pan.y / mapZoom}px)`,
-                    transformOrigin: "center center",
-                    transition: isDragging ? "none" : "transform 0.2s ease",
-                    display: "block",
-                    userSelect: "none",
-                  }}
-                />
-                <svg
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: "100%",
-                    transform: `scale(${mapZoom}) translate(${pan.x / mapZoom}px, ${pan.y / mapZoom}px)`,
-                    transformOrigin: "center center",
-                    transition: isDragging ? "none" : "transform 0.2s ease",
-                    overflow: "visible",
-                    pointerEvents: "none",
-                  }}
-                  viewBox="0 0 1024 1024"
-                  preserveAspectRatio="xMidYMid meet"
-                >
-                  {boundingBoxes
-                    .filter((box) => {
-                      if (box.subtype === "no-damage")
-                        return damageFilter.noDamage;
-                      if (box.subtype === "minor-damage")
-                        return damageFilter.minorDamage;
-                      return damageFilter.severeDamage;
-                    })
-                    .map(({ building_id, bbox }) => {
-                      const [minX, minY, maxX, maxY] = bbox;
-
-                      return (
-                        <rect
-                          key={building_id}
-                          x={minX}
-                          y={minY}
-                          width={maxX - minX}
-                          height={maxY - minY}
-                          fill="none"
-                          stroke="black"
-                          strokeWidth={2}
-                          strokeDasharray="4 2"
-                        />
-                      );
-                    })}
-                </svg>
-                <div style={{ position: "relative", zIndex: 1 }}>
-                  <div className="map-houses-row">
-                    {row0.map((property) => renderHouse(property))}
-                  </div>
-                  <div className="map-houses-row">
-                    {row1.map((property) => renderHouse(property))}
-                  </div>
-                </div>
-              </div>
-              <div className="map-legend-floating">
-                <div className="legend-title">Damage</div>
-                <div className="legend-row">
-                  <span className="legend-dot no-damage" />
-                  <span>No Damage</span>
-                </div>
-                <div className="legend-row">
-                  <span className="legend-dot minor-damage" />
-                  <span>Minor Damage</span>
-                </div>
-                <div className="legend-row">
-                  <span className="legend-dot severe-damage" />
-                  <span>Severe Damage</span>
-                </div>
-              </div>
-              <div className="map-legend-bottom">
-                <span className="legend-item">
-                  <span className="legend-dot no-damage" />
-                  No Damage
-                </span>
-                <span className="legend-item">
-                  <span className="legend-dot minor-damage" />
-                  Minor Damage
-                </span>
-                <span className="legend-item">
-                  <span className="legend-dot severe-damage" />
-                  Severe Damage
-                </span>
-              </div>
+              <Map type = "pre" boundingBoxes={boundingBoxes} damageFilter={damageFilter}></Map>
             </div>
           </section>
           <section className="panel vlm-demo-panel">

@@ -257,6 +257,7 @@
   background: linear-gradient(135deg, #e4edf8, #d2e0f3);
   box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.6);
   border-radius: 0 0 0.9rem 0.9rem;
+  height: 600px;
 }
 
 .map-toolbar {
