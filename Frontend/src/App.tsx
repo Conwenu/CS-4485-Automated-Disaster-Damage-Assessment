@@ -94,9 +94,6 @@ function App() {
   const [activeImageTab, setActiveImageTab] = useState<"before" | "after">(
     "after",
   );
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string>(
-    PROPERTIES[2].id,
-  );
 
   const [demoPreImage, setDemoPreImage] = useState<File | null>(null);
   const [demoPostImage, setDemoPostImage] = useState<File | null>(null);
@@ -117,21 +114,6 @@ function App() {
       })
       .catch((err) => console.error("Failed to fetch bounding boxes:", err));
   }, []);
-
-  const selectedProperty = useMemo(
-    () => PROPERTIES.find((p) => p.id === selectedPropertyId) ?? PROPERTIES[0],
-    [selectedPropertyId],
-  );
-
-  const filteredProperties = useMemo(
-    () =>
-      PROPERTIES.filter((p) => {
-        if (p.damageLevel === "noDamage") return damageFilter.noDamage;
-        if (p.damageLevel === "minorDamage") return damageFilter.minorDamage;
-        return damageFilter.severeDamage;
-      }),
-    [damageFilter],
-  );
 
   const handleToggleDamage = (level: DamageLevel) => {
     setDamageFilter((prev) => {
@@ -191,7 +173,7 @@ function App() {
       setDemoLoading(false);
     }
   };
-  
+
   const groundTruthCounts = summaryData.ground_truth_counts as Partial<
     Record<EvaluationLabel, number>
   >;
@@ -284,9 +266,6 @@ function App() {
                 />
               )}
               <div className="imagery-label">
-                {activeImageTab === "before"
-                  ? "Before – pre-disaster"
-                  : "After – post-disaster"}
               </div>
             </div>
             <div className="imagery-details">
@@ -294,14 +273,7 @@ function App() {
                 <div className="imagery-meta-title">Selected property</div>
                 <div className="imagery-meta-damage">
                   Predicted damage:{" "}
-                  <span
-                    className={`damage-tag ${selectedProperty.damageLevel}`}
-                  >
-                    {selectedProperty.damageLevel === "noDamage" && "No Damage"}
-                    {selectedProperty.damageLevel === "minorDamage" &&
-                      "Minor Damage"}
-                    {selectedProperty.damageLevel === "severeDamage" &&
-                      "Severe Damage"}
+                  <span>
                   </span>
                 </div>
               </div>
