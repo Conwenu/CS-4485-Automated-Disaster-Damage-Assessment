@@ -257,6 +257,21 @@
   background: linear-gradient(135deg, #e4edf8, #d2e0f3);
   box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.6);
   border-radius: 0 0 0.9rem 0.9rem;
+  height: 600px;
+}
+
+.map-layer-toggles {
+  position: absolute;
+  top: 5rem;
+  left: 0.5rem;
+  z-index: 1000;
+  background: rgba(255, 255, 255, 0.459);
+  border-radius: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
 }
 
 .map-toolbar {
