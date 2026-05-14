@@ -226,8 +226,9 @@ function App() {
               <div className="imagery-meta">
                 <div className="imagery-meta-title">Selected property</div>
                 <div className="imagery-meta-tile">
-                  Tile:
-                  <span>
+                  <strong>Tile:</strong>
+                  <span style = {{marginLeft: "0.5rem"}}>
+                    santa-rosa-wildfire_{selectedTile}
                   </span>
                 </div>
               </div>
