@@ -1,29 +1,26 @@
 """LangChain-orchestrated RAG retriever.
 
 Pipeline:
-  1. Hybrid retrieval: Chroma MMR + BM25, fused via RRF.
+  1. Hybrid retrieval: Chroma MMR + BM25, deduped per source, fused via RRF.
   2. Cross-encoder reranker filters candidates.
   3. Grounded generation over surviving documents.
 """
 
-import time
+import json
 import logging
+import time
 from pathlib import Path
-from typing import List, Optional, AsyncGenerator
+from typing import AsyncGenerator, List, Optional
 
 from langchain_chroma import Chroma
+from langchain_core.documents import Document
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
 
-from app.rag.hybrid import load_bm25, reciprocal_rank_fusion
-from app.rag.chains import (
-    build_generator_chain,
-    collect_citations,
-)
-
 from app.config import settings
+from app.rag.chains import build_generator_chain, collect_citations, stream_answer
+from app.rag.hybrid import load_bm25, reciprocal_rank_fusion
 
 log = logging.getLogger(__name__)
 
@@ -33,38 +30,69 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BM25_CHUNKS_PATH = REPO_ROOT / "data" / "bm25_chunks.json"
 INDEX_DIR = REPO_ROOT / "data" / "chroma_index"
 COLLECTION_NAME = "disaster_damage_kb"
+
+# ---------- Models ----------
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-RERANKER_THRESHOLD = 0.0  # keep everything above this score
-# ms-marco scores are unbounded — negative = not relevant
-# 0.0 is a reasonable cutoff; tune if needed
 
 # ---------- Retrieval tuning ----------
-RETRIEVAL_K = 15  # candidates the grader sees
-RETRIEVAL_FETCH_K = 25  # MMR pool size
+# Hybrid retrieval — top-K from each retriever before fusion
+HYBRID_K_VECTOR = 8
+HYBRID_K_BM25 = 8
+HYBRID_FINAL_K = 10  # how many fused results to send to the reranker
+RETRIEVAL_FETCH_K = 25  # MMR pool size for vector search
 RETRIEVAL_LAMBDA = 0.5  # 0 = max diversity, 1 = max similarity
+MAX_PER_SOURCE = 2  # cap chunks from any single document (dedupe)
+
+# RRF weighting — vector wins ties; BM25 acts as a tiebreaker.
+# Inverted from the default because one long document (FEMA PDA Guide)
+# was saturating BM25 and crowding out relevant shorter sources.
+RRF_VECTOR_WEIGHT = 1.3
+RRF_BM25_WEIGHT = 1.0
+
+# Reranker — ms-marco scores are unbounded; negative = not relevant.
+RERANKER_THRESHOLD = 0.0
+
+# Generation
 MAX_GRADED_DOCS = 5  # cap on docs sent to generator
 MIN_GRADED_DOCS_FOR_GEN = 1  # need at least this many to attempt generation
 
-
-# Hybrid retrieval — top-K from each retriever before RRF fusion
-HYBRID_K_VECTOR = 8
-HYBRID_K_BM25 = 8
-HYBRID_FINAL_K = 6  # how many fused results to send to the grader
-
+# Phrases that indicate the generator refused to answer (insufficient context).
+# Kept conservative — overly broad markers like "no specific" or "not mentioned"
+# trigger false positives on valid answers that use those phrases in passing.
 REFUSAL_MARKERS = (
-    "don't contain",
-    "do not contain",
-    "no information",
-    "cannot answer",
-    "isn't enough information",
-    "not enough information",
-    "do not state",
-    "does not state",
-    "does not contain",
-    "no specific",
-    "not mentioned",
+    "sources don't contain",
+    "sources do not contain",
+    "context does not contain",
+    "context doesn't contain",
+    "provided sources do not",
+    "provided sources don't",
+    "cannot answer that",
+    "not enough information to answer",
+    "isn't enough information to answer",
+    "the documents do not",
+    "the documents don't",
 )
+
+
+def _is_refusal(text: str) -> bool:
+    """True if the generator output looks like a refusal to answer."""
+    if not text:
+        return True
+    lowered = text.lower()
+    return any(m in lowered for m in REFUSAL_MARKERS)
+
+
+def _dedupe_by_source(docs: List[Document], max_per_source: int) -> List[Document]:
+    """Keep at most N chunks from any single source, preserving order."""
+    counts: dict[str, int] = {}
+    out: List[Document] = []
+    for d in docs:
+        src = d.metadata.get("source", "?")
+        if counts.get(src, 0) < max_per_source:
+            out.append(d)
+            counts[src] = counts.get(src, 0) + 1
+    return out
 
 
 class KnowledgeRetriever:
@@ -72,13 +100,14 @@ class KnowledgeRetriever:
 
     def __init__(self) -> None:
         self._vector_store: Optional[Chroma] = None
+        self._bm25 = None
+        self._reranker: Optional[CrossEncoder] = None
         self._generator = None
-        self._generator_llm = None
+        self._generator_llm: Optional[ChatGoogleGenerativeAI] = None
 
         if not INDEX_DIR.exists():
             log.warning(
-                "No vector index at %s. Run `python -m app.rag.build_index` "
-                "first. Falling back to seed-facts-only mode.",
+                "No vector index at %s. Run `python -m app.rag.build_index` first.",
                 INDEX_DIR,
             )
             return
@@ -95,7 +124,6 @@ class KnowledgeRetriever:
             persist_directory=str(INDEX_DIR),
         )
 
-        self._bm25 = None
         if BM25_CHUNKS_PATH.exists():
             log.info("Loading BM25 corpus from %s", BM25_CHUNKS_PATH)
             try:
@@ -111,11 +139,9 @@ class KnowledgeRetriever:
 
         log.info("Loading reranker model (%s)...", RERANKER_MODEL)
         self._reranker = CrossEncoder(RERANKER_MODEL)
-        log.info("Reranker loaded.")
 
         log.info("Building generator chain...")
         self._generator = build_generator_chain()
-
         self._generator_llm = ChatGoogleGenerativeAI(
             model=settings.GOOGLE_MODEL,
             temperature=0,
@@ -133,32 +159,29 @@ class KnowledgeRetriever:
     def get_generator_llm(self):
         return self._generator_llm
 
+    # ------------------------------------------------------------------
+    # Synchronous retrieval
+    # ------------------------------------------------------------------
     def retrieve(self, query: str) -> Optional[str]:
-        if not query or not query.strip():
-            return None
-
-        if self._vector_store is None:
-            # print("retrieve: vector store is None")
+        if not query or not query.strip() or self._vector_store is None:
             return None
 
         candidates = self._search(query)
-        # print(f"retrieve: {len(candidates)} candidates for query={query!r}")
         if not candidates:
             return None
 
-        graded = self._grade(query, candidates)
-        # print(f"retrieve: {len(graded)}/{len(candidates)} graded")
-
+        graded = self._rerank(query, candidates)
         if len(graded) < MIN_GRADED_DOCS_FOR_GEN:
-            print(f"retrieve: fallback to top-{MAX_GRADED_DOCS} ungraded")
+            log.info(
+                "Reranker dropped everything; falling back to top-%d candidates.",
+                MAX_GRADED_DOCS,
+            )
             graded = candidates[:MAX_GRADED_DOCS]
 
-        result = self._generate(query, graded[:MAX_GRADED_DOCS])
-        # print(f"retrieve: generate returned {repr(result)[:100] if result else 'None'}")
-        return result
+        return self._generate(query, graded[:MAX_GRADED_DOCS])
 
     def _search(self, query: str) -> List[Document]:
-        # Vector search (semantic)
+        """Hybrid retrieval: vector (MMR) + BM25, deduped per source, fused via RRF."""
         if self._vector_store is None:
             return []
 
@@ -173,7 +196,6 @@ class KnowledgeRetriever:
         except Exception:
             log.exception("Vector retrieval failed for query=%r", query)
 
-        # BM25 search (keyword) — optional, falls back to vector-only if missing
         bm25_hits: List[Document] = []
         if self._bm25 is not None:
             try:
@@ -181,14 +203,20 @@ class KnowledgeRetriever:
             except Exception:
                 log.exception("BM25 retrieval failed for query=%r", query)
 
-        # If only one retriever produced anything, just return that
+        # Dedupe per source so one long document can't monopolize results
+        vector_hits = _dedupe_by_source(vector_hits, max_per_source=MAX_PER_SOURCE)
+        bm25_hits = _dedupe_by_source(bm25_hits, max_per_source=MAX_PER_SOURCE)
+
+        # Single-retriever fallback
         if not bm25_hits:
             return vector_hits[:HYBRID_FINAL_K]
         if not vector_hits:
             return bm25_hits[:HYBRID_FINAL_K]
 
-        # Fuse via reciprocal rank fusion
-        fused = reciprocal_rank_fusion([vector_hits, bm25_hits], weights=[1.0, 1.3])
+        fused = reciprocal_rank_fusion(
+            [vector_hits, bm25_hits],
+            weights=[RRF_VECTOR_WEIGHT, RRF_BM25_WEIGHT],
+        )
         log.info(
             "Hybrid: vector=%d bm25=%d fused=%d (returning top %d)",
             len(vector_hits),
@@ -198,9 +226,10 @@ class KnowledgeRetriever:
         )
         return fused[:HYBRID_FINAL_K]
 
-    def _grade(self, query: str, docs: List[Document]) -> List[Document]:
-        if not docs:
-            return []
+    def _rerank(self, query: str, docs: List[Document]) -> List[Document]:
+        """Score (query, doc) pairs with the cross-encoder; keep above threshold."""
+        if not docs or self._reranker is None:
+            return docs
 
         pairs = [(query, d.page_content) for d in docs]
         try:
@@ -210,116 +239,73 @@ class KnowledgeRetriever:
             return docs
 
         scored = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
-
-        kept = [doc for score, doc in scored if score > RERANKER_THRESHOLD]
-        return kept
+        return [doc for score, doc in scored if score > RERANKER_THRESHOLD]
 
     def _generate(self, query: str, docs: List[Document]) -> Optional[str]:
-        # print(f"_generate: called with {len(docs)} docs for query={query!r}")
+        """Generate a grounded answer; return None on refusal or failure."""
         if self._generator is None:
             return None
+
+        # Swap in pre-chunking original text where available (better context).
         for d in docs:
             original = d.metadata.get("original_text")
             if original:
                 d.page_content = original
 
+        answer = None
         for attempt in range(3):
             try:
-                answer = self._generator.invoke(
-                    {
-                        "question": query,
-                        "documents": docs,
-                    }
-                )
+                answer = self._generator.invoke({"question": query, "documents": docs})
                 break
             except Exception as e:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     wait = 15 * (attempt + 1)
-                    print(f"_generate: rate limited, waiting {wait}s")
+                    log.warning(
+                        "Rate limited on generate, waiting %ds (attempt %d/3)",
+                        wait,
+                        attempt + 1,
+                    )
                     time.sleep(wait)
-                    answer = None
                 else:
-                    print(f"_generate: exception {e}")
+                    log.exception("Generator failed for query=%r", query)
                     return None
-        else:
-            return None
 
-        if not answer:
-            return None
-
-        print(f"_generate: raw answer={repr(answer)[:150]}")
-
-        refusal_markers = (
-            "don't contain",
-            "do not contain",
-            "no information",
-            "cannot answer",
-            "isn't enough information",
-            "not enough information",
-            "do not state",
-            "does not state",
-            "does not contain",
-            "no specific",
-            "not mentioned",
-        )
-        if any(m in answer.lower() for m in refusal_markers):
-            print("_generate: REFUSED — answer contains refusal marker")
+        if not answer or _is_refusal(answer):
+            log.info("Generator refused or returned empty for query=%r", query)
             return None
 
         sources = collect_citations(docs)
-        if sources:
-            return f"{answer}\n\nSources: {', '.join(sources)}"
-        return answer
+        return f"{answer}\n\nSources: {', '.join(sources)}" if sources else answer
 
-    async def retrieve_stream(
-        self,
-        query: str,
-    ) -> AsyncGenerator[str, None]:
-        """Stream the RAG answer token by token.
-
-        Same pipeline as retrieve() but yields tokens from the generator
-        instead of returning a complete string.
-
-        Yields:
-            str tokens during generation
-            After all tokens: yields a special sentinel with citations
-        """
-        import json
-        from app.rag.chains import stream_answer
-
+    # ------------------------------------------------------------------
+    # Streaming retrieval (unused by current chat_service path but kept
+    # available; emits tokens then a sentinel with citations).
+    # ------------------------------------------------------------------
+    async def retrieve_stream(self, query: str) -> AsyncGenerator[str, None]:
         if not query or not query.strip():
             return
-
         if self._vector_store is None or self._generator_llm is None:
             return
 
-        # Retrieval + reranking (same as retrieve())
         candidates = self._search(query)
         if not candidates:
             return
 
-        graded = self._grade(query, candidates)
+        graded = self._rerank(query, candidates)
         if not graded:
             graded = candidates[:MAX_GRADED_DOCS]
 
         docs = graded[:MAX_GRADED_DOCS]
-
-        # Use original text for generation
         for d in docs:
             original = d.metadata.get("original_text")
             if original:
                 d.page_content = original
 
-        # Stream tokens from Gemini
         full_answer = ""
         async for token in stream_answer(query, docs, self._generator_llm):
             full_answer += token
             yield token
 
-        # After all tokens, yield citations as a special JSON sentinel
-        # The caller detects this and handles it separately
         sources = collect_citations(docs)
-        if sources and full_answer:
-            # Check for refusal before yielding citation sentinel
-            if not any(m in full_answer.lower() for m in REFUSAL_MARKERS):
-                yield f"\x00SOURCES:{json.dumps(sources)}"
+        if sources and full_answer and not _is_refusal(full_answer):
+            yield f"\x00SOURCES:{json.dumps(sources)}"

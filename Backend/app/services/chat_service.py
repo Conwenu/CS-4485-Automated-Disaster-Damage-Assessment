@@ -113,7 +113,7 @@ class ChatService:
         external_info = None
         external_note = None
         if parsed.needs_external_knowledge and parsed.external_query:
-            enriched = self._ensure_specific_query(parsed.external_query)
+            enriched = parsed.external_query
             log.info("Calling external retrieval with query=%r", enriched)
             external_info = self.external.retrieve(enriched)
             log.info(
@@ -256,7 +256,7 @@ class ChatService:
             and parsed.external_query
             and parsed.intent.value == "OUT_OF_SCOPE"
         ):
-            enriched = self._ensure_specific_query(parsed.external_query)
+            enriched = parsed.external_query
             external_info = await loop.run_in_executor(
                 None,
                 self.external.retrieve,
@@ -314,7 +314,7 @@ class ChatService:
         # --------------------------------------------------------------
         external_info = None
         if parsed.needs_external_knowledge and parsed.external_query:
-            enriched = self._ensure_specific_query(parsed.external_query)
+            enriched = parsed.external_query
             external_info = await loop.run_in_executor(
                 None,
                 self.external.retrieve,
