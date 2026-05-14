@@ -7,52 +7,6 @@ import { FloatingChatbot } from "./FloatingChatbot";
 
 type DamageLevel = "noDamage" | "minorDamage" | "severeDamage";
 
-type PropertyPoint = {
-  id: string;
-  damageLevel: DamageLevel;
-  row: number;
-  col: number;
-};
-
-const PROPERTIES: PropertyPoint[] = [
-  {
-    id: "p1",
-    damageLevel: "noDamage",
-    row: 0,
-    col: 0,
-  },
-  {
-    id: "p2",
-    damageLevel: "minorDamage",
-    row: 0,
-    col: 1,
-  },
-  {
-    id: "p3",
-    damageLevel: "severeDamage",
-    row: 0,
-    col: 2,
-  },
-  {
-    id: "p4",
-    damageLevel: "minorDamage",
-    row: 1,
-    col: 0,
-  },
-  {
-    id: "p5",
-    damageLevel: "noDamage",
-    row: 1,
-    col: 1,
-  },
-  {
-    id: "p6",
-    damageLevel: "severeDamage",
-    row: 1,
-    col: 2,
-  },
-];
-
 type BoundingBox = {
   building_id: string;
   subtype: string;
@@ -271,8 +225,8 @@ function App() {
             <div className="imagery-details">
               <div className="imagery-meta">
                 <div className="imagery-meta-title">Selected property</div>
-                <div className="imagery-meta-damage">
-                  Predicted damage:{" "}
+                <div className="imagery-meta-tile">
+                  Tile:
                   <span>
                   </span>
                 </div>
